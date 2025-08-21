@@ -1,4 +1,4 @@
-#### 1、脚本（任选其一）
+### 1、脚本（任选其一）
 
 - ubuntu 22.04 正常运行
 
@@ -10,26 +10,26 @@ curl -fsSL https://raw.githubusercontent.com/zatteflow/tools/main/ubuntu/sh/sec-
 curl -fsSL https://raw.githubusercontent.com/zatteflow/tools/main/ubuntu/sh/sec-tools.sh | sudo bash
 ```
 
-#### 2、下载脚本后本地运行
+### 2、下载脚本后本地运行
 
 ```bash
 # 赋权 & 执行
 chmod +x sec-tools-v2.sh && sudo ./sec-tools-v2.sh
 ```
 
-#### 3、提取本周报告核心信息（需 sec-tools.sh 自动执行完后，v2 版自动执行）
+### 3、提取本周报告核心信息（需 sec-tools.sh 自动执行完后，v2 版自动执行）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zatteflow/tools/main/ubuntu/sh/quick-audit.sh | sudo bash
 ```
 
-#### 4、清理系统
+### 4、清理系统
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zatteflow/tools/main/ubuntu/sh/clear.sh | sudo bash
 ```
 
-#### 5、卸载
+### 5、卸载
 
 ```bash
 sudo apt-get purge -y wazuh-agent lynis rkhunter chkrootkit && sudo rm -rf /var/ossec /etc/ossec-init.conf /var/log/weekly-sec /usr/local/bin/weekly-sec.sh && sudo rm -f /etc/apt/sources.list.d/wazuh.list /etc/apt/trusted.gpg.d/wazuh.gpg && sudo crontab -l 2>/dev/null | grep -v '/usr/local/bin/weekly-sec.sh' | sudo crontab - || true
