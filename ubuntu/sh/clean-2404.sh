@@ -23,12 +23,12 @@ echo "[2/10] 清理已卸载包的残留配置文件..."
 dpkg -l | awk '/^rc/ {print $2}' | xargs -r apt-get purge -y
 
 # 3. snap 处理：仅当 snapd 正在运行时才执行
-if systemctl is-active --quiet snapd; then
-    echo "[3/10] 清理旧 snap 版本..."
+if systemctl is-active --quiet snapd 2>/dev/null; then
+    echo "[3/9] 清理旧 snap 版本..."
     snap set system refresh.retain=2
     snap refresh
 else
-    echo "[3/10] snapd 未运行，跳过 snap 清理"
+    echo "[3/9] snapd 未运行，已跳过 snap 清理"
 fi
 
 # 4. 日志轮转
