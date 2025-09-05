@@ -33,6 +33,11 @@ curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/cle
 curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/clean-2404.sh | sudo bash
 ```
 
+### 5、系统检查
+```
+curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/check.sh | sudo bash
+```
+
 ### 5、卸载
 
 ```bash
