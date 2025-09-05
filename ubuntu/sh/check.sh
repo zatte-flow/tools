@@ -27,9 +27,12 @@ fi
 
 # 3. Rootkit / 文件完整性
 log "${YEL}③ Rootkit 检测${NC}"
-rkhunter --update --quiet && rkhunter -c --skip-keypress --rwo >> $REPORT 2>&1
-chkrootkit -q >> $REPORT 2>&1
-if grep -iq "warning\|infected" $REPORT; then
+# ---- 先更新特征库，再扫描 ----
+rkhunter --update --quiet
+rkhunter -c --skip-keypress --rwo >> "$REPORT" 2>&1
+chkrootkit -q >> "$REPORT" 2>&1
+# ---- 判断结果 ----
+if grep -Eiq "warning|infected" "$REPORT"; then
     log "${RED}✗ rkhunter/chkrootkit 存在告警，见报告${NC}"
 else
     log "${GRN}✓ Rootkit 检测通过${NC}"
