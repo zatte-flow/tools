@@ -26,7 +26,11 @@ curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/qui
 ### 4、清理系统
 
 ```bash
+# 22.04
 curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/clear.sh | sudo bash
+
+# 24.04版
+curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/clean-2404.sh | sudo bash
 ```
 
 ### 5、卸载
