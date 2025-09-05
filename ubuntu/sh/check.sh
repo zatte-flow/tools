@@ -18,9 +18,13 @@ apt list --upgradable 2>/dev/null | grep -c security && log "${RED}✗ 存在安
 
 # 2. 已知 CVE 内核漏洞
 log "${YEL}② 内核 CVE 快速比对${NC}"
-CURRENT=$(uname -r)
 if command -v ubuntu-security-status >/dev/null 2>&1; then
-    ubuntu-security-status --unavailable | grep -i "kernel" && log "${RED}✗ 内核有未修复 CVE${NC}" || log "${GRN}✓ 内核暂无已知 CVE${NC}"
+    # 静默拉取 JSON，只统计内核相关未修复 CVE
+    cve_cnt=$(ubuntu-security-status --format json 2>/dev/null | \
+              jq '[.packages[] | select(.service_name=="esm-infra" or .service_name=="esm-apps")
+                    | select(.package_name | startswith("linux"))] | length')
+    [[ $cve_cnt -gt 0 ]] && log "${RED}✗ 内核有 ${cve_cnt} 个未修复 CVE${NC}" \
+                        || log "${GRN}✓ 内核暂无已知 CVE${NC}"
 else
     log "${YEL}! ubuntu-security-status 未安装，略过 CVE 检查${NC}"
 fi
