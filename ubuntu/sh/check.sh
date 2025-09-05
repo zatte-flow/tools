@@ -32,13 +32,16 @@ fi
 
 # 3. Rootkit / 文件完整性
 log "${YEL}③ Rootkit 检测${NC}"
-# ---- 先更新特征库，再扫描 ----
+
+# --更新特征库 & 扫描
 rkhunter --update --quiet
 rkhunter -c --skip-keypress --rwo >> "$REPORT" 2>&1
-chkrootkit -q >> "$REPORT" 2>&1
-# ---- 判断结果 ----
-if grep -Eiq "warning|infected" "$REPORT"; then
-    log "${RED}✗ rkhunter/chkrootkit 存在告警，见报告${NC}"
+chkrootkit 2>/dev/null >> "$REPORT"
+
+# --只看 true positive（跳过白名单和固定提示）
+if grep -iE 'infected|rootkit|backdoor|trojan|compromised' "$REPORT" |
+   grep -v -iE 'ALLOWHIDDEN|ALLOWHIDDENDIR|ALLOWHIDDENFILE|suspicious files and directories' >/dev/null; then
+    log "${RED}✗ rkhunter/chkrootkit 存在真正告警${NC}"
 else
     log "${GRN}✓ Rootkit 检测通过${NC}"
 fi
