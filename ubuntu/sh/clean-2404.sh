@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-#  Ubuntu 24.04 系统清理脚本
+#  Ubuntu 24.04 系统清理脚本（带 snapd 存活检测）
 #  需要 root 或 sudo 权限执行
 # ============================================================================
 set -euo pipefail
@@ -22,12 +22,14 @@ apt-get autoremove --purge -y
 echo "[2/10] 清理已卸载包的残留配置文件..."
 dpkg -l | awk '/^rc/ {print $2}' | xargs -r apt-get purge -y
 
-# 3. snap 保留最近 2 个 revision
-echo "[3/10] 清理旧 snap 版本..."
-# 让系统以后只保留 2 份
-snap set system refresh.retain=2
-# 立即触发一次裁剪（snap 会自动删）
-snap refresh
+# 3. snap 处理：仅当 snapd 正在运行时才执行
+if systemctl is-active --quiet snapd; then
+    echo "[3/10] 清理旧 snap 版本..."
+    snap set system refresh.retain=2
+    snap refresh
+else
+    echo "[3/10] snapd 未运行，跳过 snap 清理"
+fi
 
 # 4. 日志轮转
 echo "[4/10] 清理旧日志..."
@@ -44,7 +46,6 @@ echo "[6/10] 清理缩略图缓存..."
 for home in /home/*; do
   [[ -d "$home/.cache/thumbnails" ]] && rm -rf "$home/.cache/thumbnails"/*
 done
-# 也清 root
 rm -rf /root/.cache/thumbnails/*
 
 # 7. 旧内核（保留当前+最新元包）
@@ -54,7 +55,6 @@ dpkg -l | grep '^ii.*linux-image-[0-9]' |
   awk '{print $2}' |
   grep -v "$cur" |
   xargs -r apt-get purge -y
-# 更新 grub 菜单
 update-grub
 
 # 8. Docker 环境（如已安装）
@@ -63,7 +63,7 @@ if command -v docker &>/dev/null; then
   docker system prune -af --volumes
 fi
 
-# 9. 可选：浏览器缓存（默认关闭，需手动取消注释）
+# 9. 可选：浏览器缓存（默认关闭）
 # echo "[9/10] 清理浏览器缓存..."
 # for prof in /home/*/.cache/mozilla/firefox/*.default*/cache/*; do
 #   [[ -d "$prof" ]] && rm -rf "$prof"
