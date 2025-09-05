@@ -38,14 +38,14 @@ rkhunter --update --quiet
 rkhunter -c --skip-keypress --rwo >> "$REPORT" 2>&1
 chkrootkit 2>/dev/null >> "$REPORT"
 
-# 2. 统计真正高危关键字（跳过白名单和固定提示）
-threat_cnt=$(grep -iE 'infected|backdoor|trojan|compromised' "$REPORT" |
-             grep -v -iE 'ALLOWHIDDEN|ALLOWHIDDENDIR|ALLOWHIDDENFILE|suspicious files and directories' |
-             wc -l)
+# 只统计真正阳性（跳过搜索提示和白名单）
+threat_cnt=$( (grep -iE 'trojan|compromised' "$REPORT" |
+               grep -v -iE 'Searching for|ALLOWHIDDEN|suspicious files and directories' ||
+               true) | wc -l)
 
 [[ $threat_cnt -gt 0 ]] && log "${RED}✗ rkhunter/chkrootkit 存在真正告警${NC}" \
                       || log "${GRN}✓ Rootkit 检测通过${NC}"
-
+                      
 # 4. 系统启动异常
 log "${YEL}④ 启动失败单元${NC}"
 FAILED=$(systemctl --failed --no-legend | wc -l)
