@@ -4,6 +4,7 @@
 # ==========================================================
 # ① 去掉 -e，保留 pipefail；② 全部 || true 兜底；③ 总结强制 cat
 set -o pipefail
+exec 2>&1
 
 DOMAIN_URL="https://raw.githubusercontent.com/zatte-flow/tools/refs/heads/main/ubuntu/sh/cdn/domains.txt"
 
