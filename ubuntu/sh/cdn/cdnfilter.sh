@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# ==========================================================
+# CDN 域名硬筛选器 – 必出总结 + 已排序（不提前退出）
+# ==========================================================
 set -o pipefail
 exec 2>&1
 
@@ -18,11 +21,10 @@ done
 TMP_LIST=$(mktemp)
 curl -fsSL "$DOMAIN_URL" -o "$TMP_LIST" || { echo "❌ 下载失败"; exit 2; }
 [ -s "$TMP_LIST" ] || { echo "❌ 列表为空"; exit 3; }
-# 保证最后一行有换行
-tail -c1 "$TMP_LIST" | read -r _ || echo >> "$TMP_LIST"
 INPUT="$TMP_LIST"
 trap "rm -f $TMP_LIST" EXIT
 
+# *** 只改遍历部分 ***
 while IFS= read -r domain; do
   [ -z "$domain" ] && continue
   echo -n "🔍  $domain  "
@@ -63,6 +65,7 @@ while IFS= read -r domain; do
   printf "%.1f ms\n" "$rtt"
   echo "$rtt $domain" >> "$QUAL_FILE"
 done < "$INPUT"
+# *** 只改遍历，其它保持原样 ***
 
 echo "===== SORT DIAG: $(sort --version | head -1) ====="
 sort -n -k1,1 "$QUAL_FILE" > "$QUAL_FILE.tmp" && mv "$QUAL_FILE.tmp" "$QUAL_FILE"
