@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==========================================================
-# CDN 域名硬筛选器 – 必出总结 + 已排序（不提前退出）
+# CDN 域名硬筛选器 – 兼容 curl | sudo bash 直接管道执行的版本
 # ==========================================================
-# ① 去掉 -e，保留 pipefail；② 全部 || true 兜底；③ 总结强制 cat
+# ① 不用自定义文件描述符；② 全部采用临时文件；③ 主逻辑无FD依赖；④ 支持直接管道 sudo
 set -o pipefail
 exec 2>&1
 
@@ -25,11 +25,10 @@ done
 TMP_LIST=$(mktemp)
 curl -fsSL "$DOMAIN_URL" -o "$TMP_LIST" || { echo "❌ 下载失败"; exit 2; }
 [ -s "$TMP_LIST" ] || { echo "❌ 列表为空"; exit 3; }
-INPUT="$TMP_LIST"
 trap "rm -f $TMP_LIST" EXIT
 
-exec 3<"$INPUT"
-while read -r domain <&3; do
+# 用临时文件遍历每个域名，避免文件描述符
+while IFS= read -r domain || [ -n "$domain" ]; do
   [ -z "$domain" ] && continue
   echo -n "🔍  $domain  "
 
@@ -68,8 +67,7 @@ while read -r domain <&3; do
   [ -z "$rtt" ] && rtt=999
   printf "%.1f ms\n" "$rtt"
   echo "$rtt $domain" >> "$QUAL_FILE"
-done
-exec 3<&-
+done < "$TMP_LIST"
 
 # 8. 排序（临时文件方案，永不出错）
 echo "===== SORT DIAG: $(sort --version | head -1) ====="
