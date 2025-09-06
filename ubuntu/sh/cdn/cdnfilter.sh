@@ -2,9 +2,6 @@
 # ==========================================================
 # CDN 域名硬筛选器 – 结果固定写到 /tmp/cdn/
 # 如果没给域名文件，自动拉 GitHub 上的 domains.txt
-# ----------------------------------------------------------
-# 一行流：
-#   bash <(curl -fsSL https://raw.githubusercontent.com/USER/REPO/main/cdnfilter.sh)
 # ==========================================================
 set -euo pipefail
 
@@ -12,7 +9,7 @@ DOMAIN_FILE="${1:-}"                       # 用户可给本地文件
 DEST_DIR="/tmp/cdn"
 QUAL_FILE="$DEST_DIR/qualified-domains.txt"
 QUAL_ONLY="$DEST_DIR/qualified-domains-only.txt"
-GITHUB_LIST="https://raw.githubusercontent.com/YOURNAME/REPO/main/domains.txt"
+GITHUB_LIST="https://github.com/zatte-flow/tools/raw/refs/heads/main/ubuntu/sh/cdn/domains.txt"
 
 # 1. 保证输出目录
 [ -d "$DEST_DIR" ] || mkdir -p "$DEST_DIR" 2>/dev/null || sudo mkdir -p "$DEST_DIR"
