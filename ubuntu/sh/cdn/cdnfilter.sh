@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# ==========================================================
-# CDN 域名硬筛选器 – 必出总结 + 已排序（不提前退出）
-# ==========================================================
-# ① 去掉 -e，保留 pipefail；② 全部 || true 兜底；③ 总结强制 cat
 set -o pipefail
 exec 2>&1
 
@@ -12,24 +8,22 @@ DEST_DIR="/tmp/cdn"
 QUAL_FILE="$DEST_DIR/qualified-domains.txt"
 QUAL_ONLY="$DEST_DIR/qualified-domains-only.txt"
 
-# 目录 & 空文件
 mkdir -p "$DEST_DIR" 2>/dev/null || sudo mkdir -p "$DEST_DIR"
 > "$QUAL_FILE" 2>/dev/null || sudo touch "$QUAL_FILE" "$QUAL_ONLY"
 
-# 依赖检查（缺失直接退出）
 for cmd in curl openssl dig; do
   command -v "$cmd" >/dev/null || { echo "❌ 缺少 $cmd"; exit 1; }
 done
 
-# 下载域名列表
 TMP_LIST=$(mktemp)
 curl -fsSL "$DOMAIN_URL" -o "$TMP_LIST" || { echo "❌ 下载失败"; exit 2; }
 [ -s "$TMP_LIST" ] || { echo "❌ 列表为空"; exit 3; }
+# 保证最后一行有换行
+tail -c1 "$TMP_LIST" | read -r _ || echo >> "$TMP_LIST"
 INPUT="$TMP_LIST"
 trap "rm -f $TMP_LIST" EXIT
 
-# ===== 只改遍历部分，兼容所有shell和管道 =====
-while IFS= read -r domain || [ -n "$domain" ]; do
+while IFS= read -r domain; do
   [ -z "$domain" ] && continue
   echo -n "🔍  $domain  "
 
@@ -69,14 +63,11 @@ while IFS= read -r domain || [ -n "$domain" ]; do
   printf "%.1f ms\n" "$rtt"
   echo "$rtt $domain" >> "$QUAL_FILE"
 done < "$INPUT"
-# ===== 只改到这里，其它不动 =====
 
-# 8. 排序（临时文件方案，永不出错）
 echo "===== SORT DIAG: $(sort --version | head -1) ====="
 sort -n -k1,1 "$QUAL_FILE" > "$QUAL_FILE.tmp" && mv "$QUAL_FILE.tmp" "$QUAL_FILE"
 cut -d' ' -f2 "$QUAL_FILE" > "$QUAL_ONLY"
 
-# 9. 总结（用 cat 强制输出，避免任何变量扩展失败）
 cnt=$(wc -l < "$QUAL_FILE" || echo 0)
 cat <<EOF
 ✅ 完成！共 $cnt 个合格域名
