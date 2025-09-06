@@ -2,12 +2,14 @@
 # ==========================================================
 # CDN 域名硬筛选器 – 必须在线拉取 domains.txt，无内置
 # 输出目录：/tmp/cdn
+# 一行流：
+#   bash <(curl -fsSL https://your-server.tld/cdnfilter.sh)
 # ==========================================================
 set -uo pipefail
-exec 2>&1  
+exec 2>&1
 
 ##############  唯一需要改的变量  ################
-# 换成服务器可通的 raw 地址
+# 海外可通的 raw 地址（末尾千万别有空格）
 DOMAIN_URL="https://raw.githubusercontent.com/zatte-flow/tools/refs/heads/main/ubuntu/sh/cdn/domains.txt"
 #################################################
 
@@ -44,7 +46,9 @@ trap "rm -f $TMP_LIST" EXIT
 # 4. 清空旧结果
 > "$QUAL_FILE"
 
-while read -r domain; do
+# 5. 主循环：用 FD3 隔离 stdin，避免内部命令吃输入
+exec 3<"$INPUT"
+while read -r domain <&3; do
   [ -z "$domain" ] && continue
   echo -n "🔍  $domain  "
 
@@ -55,11 +59,11 @@ while read -r domain; do
 
   # ---- 2. 证书链深度 ≤2 ----
   depth=$(timeout 5 openssl s_client -connect "$domain":443 -showcerts 2>/dev/null |
-          awk '/Certificate chain/,/---/' | grep -Ec '^ [0-9] s:')
+          awk '/Certificate chain/,/---/' | grep -Ec '^ [0-9] s:' || true)
   [ "$depth" -gt 2 ] && { echo "❌ 证书链深度=$depth"; continue; }
 
   # ---- 3. 严格无 301/302 ----
-  codes=$(curl -sIL -m 5 -w '%{http_code}\n' "https://$domain" -o /dev/null | grep -E '^30[12]')
+  codes=$(curl -sIL -m 5 -w '%{http_code}\n' "https://$domain" -o /dev/null | grep -E '^30[12]' || true)
   [ -n "$codes" ] && { echo "❌ 跳转 $codes"; continue; }
 
   # ---- 4. 拒绝跳 www / 国别子域 ----
@@ -80,14 +84,15 @@ while read -r domain; do
   [ "$sz" -eq 0 ] && { echo "❌ 404空页面"; continue; }
 
   # ---- 7. 测 RTT ----
-  rtt=$(ping -c3 -W1 -q "$domain" 2>/dev/null | awk -F'/' 'END{print $5}')
+  rtt=$(ping -c3 -W1 -q "$domain" 2>/dev/null | awk -F'/' 'END{print $5}' || true)
   [ -z "$rtt" ] && rtt=999
   printf "%.1f ms\n" "$rtt"
   echo "$rtt $domain" >> "$QUAL_FILE"
 
-done < "$INPUT"
+done
+exec 3<&-          # 关闭 FD3
 
-# 5. 排序 & 纯域名文件
+# 6. 排序 & 纯域名文件
 sort -n -k1,1 -o "$QUAL_FILE" "$QUAL_FILE"
 cut -d' ' -f2 "$QUAL_FILE" > "$QUAL_ONLY"
 
