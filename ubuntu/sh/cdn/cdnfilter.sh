@@ -2,14 +2,12 @@
 # ==========================================================
 # CDN 域名硬筛选器 – 必须在线拉取 domains.txt，无内置
 # 输出目录：/tmp/cdn
-# 一行流：
-#   bash <(curl -fsSL https://your-server.tld/cdnfilter.sh)
 # ==========================================================
 set -euo pipefail
 
 ##############  唯一需要改的变量  ################
-# 把下面换成你能确保海外服务器可通的 raw 地址
-DOMAIN_URL="https://cdn.jsdelivr.net/gh/zatte-flow/tools@refs/heads/main/ubuntu/sh/cdn/domains.txt"
+# 换成服务器可通的 raw 地址
+DOMAIN_URL="https://raw.githubusercontent.com/zatte-flow/tools/refs/heads/main/ubuntu/sh/cdn/domains.txt"
 #################################################
 
 DEST_DIR="/tmp/cdn"
