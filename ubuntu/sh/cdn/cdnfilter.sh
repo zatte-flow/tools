@@ -3,7 +3,8 @@
 # CDN 域名硬筛选器 – 必出总结 + 正确排序
 # ===========================================================
 # 去掉 -u 防止空变量杀进程；保留 -e 已加 || true 屏蔽
-set -eo pipefail
+set -o pipefail
+exec 2>&1
 
 DOMAIN_URL="https://raw.githubusercontent.com/zatte-flow/tools/refs/heads/main/ubuntu/sh/cdn/domains.txt"
 
