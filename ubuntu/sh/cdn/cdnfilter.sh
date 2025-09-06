@@ -1,25 +1,20 @@
 #!/usr/bin/env bash
 # ==========================================================
 # CDN 域名硬筛选器 – 结果固定写到 /tmp/cdn/
-# 1. TLS1.3 + X25519 + ALPN=h2
-# 2. 证书链深度 ≤2
-# 3. 无 301/302 跳转
-# 4. 拒绝跳 www / 国别子域（*.cn *.com.cn *.co.uk …）
-# 5. 解析到海外 IP（非 CN）
-# 6. 404 页面存在
-# 7. 按 RTT 升序排序
-#
-# 用法：
+# 如果没给域名文件，自动拉 GitHub 上的 domains.txt
+# ----------------------------------------------------------
+# 一行流：
 #   bash <(curl -fsSL https://raw.githubusercontent.com/USER/REPO/main/cdnfilter.sh)
 # ==========================================================
 set -euo pipefail
 
-DOMAIN_FILE="${1:-domains.txt}"          # 可外部指定域名列表
-DEST_DIR="/tmp/cdn"                      # 写死输出目录
+DOMAIN_FILE="${1:-}"                       # 用户可给本地文件
+DEST_DIR="/tmp/cdn"
 QUAL_FILE="$DEST_DIR/qualified-domains.txt"
 QUAL_ONLY="$DEST_DIR/qualified-domains-only.txt"
+GITHUB_LIST="https://raw.githubusercontent.com/YOURNAME/REPO/main/domains.txt"
 
-# 1. 保证目录存在并可写
+# 1. 保证输出目录
 [ -d "$DEST_DIR" ] || mkdir -p "$DEST_DIR" 2>/dev/null || sudo mkdir -p "$DEST_DIR"
 touch "$QUAL_FILE" 2>/dev/null || sudo touch "$QUAL_FILE" "$QUAL_ONLY"
 
@@ -28,7 +23,19 @@ for cmd in curl openssl dig; do
   command -v "$cmd" >/dev/null || { echo "❌ 请先安装 $cmd"; exit 1; }
 done
 
-# 3. 清空旧结果
+# 3. 域名列表处理：没给就拉 GitHub
+if [ -n "$DOMAIN_FILE" ]; then
+  [ -r "$DOMAIN_FILE" ] || { echo "❌ 本地文件不存在：$DOMAIN_FILE"; exit 1; }
+  INPUT="$DOMAIN_FILE"
+else
+  # 自动下载到临时文件描述符
+  TMP_LIST=$(mktemp)
+  curl -fsSL "$GITHUB_LIST" -o "$TMP_LIST"
+  INPUT="$TMP_LIST"
+  trap "rm -f $TMP_LIST" EXIT
+fi
+
+# 4. 清空旧结果
 > "$QUAL_FILE"
 
 while read -r domain; do
@@ -41,11 +48,11 @@ while read -r domain; do
   [ "$ok_tls" -lt 3 ] && { echo "❌ TLS"; continue; }
 
   # ---- 2. 证书链深度 ≤2 ----
-  depth=$(timeout 5 openssl s_client -connect "$domain":443 -showcerts 2>/dev/null | \
+  depth=$(timeout 5 openssl s_client -connect "$domain":443 -showcerts 2>/dev/null |
           awk '/Certificate chain/,/---/' | grep -Ec '^ [0-9] s:')
   [ "$depth" -gt 2 ] && { echo "❌ 证书链深度=$depth"; continue; }
 
-  # ---- 3. 严格无 301/302 ----
+  # ---- 3. 无 301/302 ----
   codes=$(curl -sIL -m 5 -w '%{http_code}\n' "https://$domain" -o /dev/null | grep -E '^30[12]')
   [ -n "$codes" ] && { echo "❌ 跳转 $codes"; continue; }
 
@@ -72,13 +79,12 @@ while read -r domain; do
   printf "%.1f ms\n" "$rtt"
   echo "$rtt $domain" >> "$QUAL_FILE"
 
-done < "$DOMAIN_FILE"
+done < "$INPUT"
 
-# -------------- 排序 & 纯域名文件 --------------
+# 5. 排序 & 纯域名文件
 sort -n -k1,1 -o "$QUAL_FILE" "$QUAL_FILE"
 cut -d' ' -f2 "$QUAL_FILE" > "$QUAL_ONLY"
 
-# -------------- 明确告诉用户文件在哪 --------------
 echo "✅ 完成！共 $(wc -l < "$QUAL_FILE") 个合格域名"
 echo "   带延时  : $QUAL_FILE"
 echo "   仅域名  : $QUAL_ONLY"
