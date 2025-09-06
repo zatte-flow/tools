@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # ==========================================================
-# CDN 域名硬筛选器 – 结果固定 /tmp/cdn ，防退出版
-# ==========================================================
-# 去掉 -u 防止空变量杀进程；保留 -e 也可，但下面已加 || true
-set -o pipefail
+# CDN 域名硬筛选器 – 必出总结 + 正确排序
+# ===========================================================
+# 去掉 -u 防止空变量杀进程；保留 -e 已加 || true 屏蔽
+set -eo pipefail
 
-##############  唯一需要改的变量  ################
 DOMAIN_URL="https://raw.githubusercontent.com/zatte-flow/tools/refs/heads/main/ubuntu/sh/cdn/domains.txt"
-#################################################
 
 DEST_DIR="/tmp/cdn"
 QUAL_FILE="$DEST_DIR/qualified-domains.txt"
@@ -24,13 +22,11 @@ done
 TMP_LIST=$(mktemp)
 curl -fsSL "$DOMAIN_URL" -o "$TMP_LIST" || { echo "❌ 下载失败"; exit 2; }
 [ -s "$TMP_LIST" ] || { echo "❌ 列表为空"; exit 3; }
-
-# 可选：看一眼行数
-echo "===== 诊断：共 $(wc -l < "$TMP_LIST") 行域名 ====="
-
 INPUT="$TMP_LIST"
 trap "rm -f $TMP_LIST" EXIT
-> "$QUAL_FILE"                          # 确保空文件存在
+
+# 确保输出文件存在
+> "$QUAL_FILE"
 
 exec 3<"$INPUT"
 while read -r domain <&3; do
