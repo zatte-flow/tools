@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# ==========================================================
+# CDN 域名硬筛选器 – 必出总结 + 正确排序
+# ===========================================================
+# 去掉 -u 防止空变量杀进程；保留 -e 已加 || true 屏蔽
 set -o pipefail
 exec 2>&1
 
@@ -9,25 +13,30 @@ QUAL_FILE="$DEST_DIR/qualified-domains.txt"
 QUAL_ONLY="$DEST_DIR/qualified-domains-only.txt"
 
 mkdir -p "$DEST_DIR" 2>/dev/null || sudo mkdir -p "$DEST_DIR"
-> "$QUAL_FILE" 2>/dev/null || sudo touch "$QUAL_FILE" "$QUAL_ONLY"
 
+# 依赖检查
 for cmd in curl openssl dig; do
   command -v "$cmd" >/dev/null || { echo "❌ 缺少 $cmd"; exit 1; }
 done
 
+# 下载域名列表
 TMP_LIST=$(mktemp)
 curl -fsSL "$DOMAIN_URL" -o "$TMP_LIST" || { echo "❌ 下载失败"; exit 2; }
 [ -s "$TMP_LIST" ] || { echo "❌ 列表为空"; exit 3; }
 INPUT="$TMP_LIST"
 trap "rm -f $TMP_LIST" EXIT
 
-while read -r domain; do
+# 确保输出文件存在
+> "$QUAL_FILE"
+
+exec 3<"$INPUT"
+while read -r domain <&3; do
   [ -z "$domain" ] && continue
   echo -n "🔍  $domain  "
 
-  # 1. TLS 检查
-  tls_out=$(timeout 5 openssl s_client -connect "$domain":443 -tls1_3 -alpn h2 </dev/null 2>&1 || true)
-  ok_tls=$(echo "$tls_out" | grep -Ec 'TLSv1.3|X25519|ALPN.*h2' || true)
+  # 1. TLS
+  tls_out=$(timeout 5 openssl s_client -connect "$domain":443 -tls1_3 -alpn h2 </dev/null 2>&1)
+  ok_tls=$(echo "$tls_out" | grep -Ec 'TLSv1.3|X25519|ALPN.*h2')
   [ "$ok_tls" -lt 3 ] && { echo "❌ TLS"; continue; }
 
   # 2. 证书链
@@ -40,19 +49,19 @@ while read -r domain; do
   [ -n "$codes" ] && { echo "❌ 跳转 $codes"; continue; }
 
   # 4. 跳 www/国别
-  loc=$(curl -sI -m 5 "https://$domain" | awk -F': ' '/^[Ll]ocation:/ {print $2}' | tr -d '\r' || true)
+  loc=$(curl -sI -m 5 "https://$domain" | awk -F': ' '/^[Ll]ocation:/ {print $2}' | tr -d '\r')
   case "$loc" in
     http*//www.*|http*//*.cn|http*//*.com.cn|http*//*.co.uk) echo "❌ 跳转到 $loc"; continue ;;
   esac
 
   # 5. 海外 IP
-  ip=$(dig +short A "$domain" | head -1 || true)
+  ip=$(dig +short A "$domain" | head -1)
   [ -z "$ip" ] && { echo "❌ 解析失败"; continue; }
   country=$(timeout 3 curl -s "http://ip-api.com/line/$ip?fields=countryCode" 2>/dev/null || true)
   [ "$country" = "CN" ] && { echo "❌ 国内IP($ip)"; continue; }
 
   # 6. 404 空页面
-  sz=$(curl -s --max-time 5 "https://$domain/nonexist" | wc -c || true)
+  sz=$(curl -s --max-time 5 "https://$domain/nonexist" | wc -c)
   [ "$sz" -eq 0 ] && { echo "❌ 404空页面"; continue; }
 
   # 7. RTT
@@ -60,15 +69,15 @@ while read -r domain; do
   [ -z "$rtt" ] && rtt=999
   printf "%.1f ms\n" "$rtt"
   echo "$rtt $domain" >> "$QUAL_FILE"
-done < "$INPUT"
+done
+exec 3<&-
 
-echo "===== SORT DIAG: $(sort --version | head -1) ====="
+# 8. 排序（先写临时文件，再覆盖，避免空或变量未展开）
 sort -n -k1,1 "$QUAL_FILE" > "$QUAL_FILE.tmp" && mv "$QUAL_FILE.tmp" "$QUAL_FILE"
 cut -d' ' -f2 "$QUAL_FILE" > "$QUAL_ONLY"
 
-cnt=$(wc -l < "$QUAL_FILE" || echo 0)
-cat <<EOF
-✅ 完成！共 $cnt 个合格域名
-   带延时  : $QUAL_FILE
-   仅域名  : $QUAL_ONLY
-EOF
+# 9. 总结（无论有无合格域名都显示）
+cnt=$(wc -l < "$QUAL_FILE")
+echo "✅ 完成！共 $cnt 个合格域名"
+echo "   带延时  : $QUAL_FILE"
+echo "   仅域名  : $QUAL_ONLY"
