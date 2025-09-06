@@ -31,6 +31,13 @@ if ! curl -fsSL "$DOMAIN_URL" -o "$TMP_LIST"; then
   exit 2
 fi
 [ -s "$TMP_LIST" ] || { echo "❌ 域名列表为空"; exit 3; }
+
+# ===== 诊断：下载到的行数与内容 =====
+echo "===== 诊断：下载到的行数与内容 ====="
+wc -l "$TMP_LIST"
+head -20 "$TMP_LIST" | cat -n
+echo "===== 诊断结束 ====="
+
 INPUT="$TMP_LIST"
 trap "rm -f $TMP_LIST" EXIT
 
