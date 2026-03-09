@@ -5,6 +5,9 @@
 ```bash
 # 检查后，自动生成告警摘要日志（quick-audit.sh） 
 curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/sec-tools-v2.sh | sudo bash
+# 运行脚本前，设置环境变量，否则可能因邮件服务出错
+export DEBIAN_FRONTEND=noninteractive
+sudo debconf-set-selections <<< "postfix postfix/main_mailer_type string No configuration"
 
 # 旧版，无自动生成告警摘要日志
 curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/sec-tools.sh | sudo bash
