@@ -41,7 +41,12 @@ curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/cle
 curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/check.sh | sudo bash
 ```
 
-### 6、卸载
+### 6、系统安全检测
+```
+curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/security_audit.sh | sudo bash
+```
+
+### 7、卸载
 
 ```bash
 sudo apt-get purge -y wazuh-agent lynis rkhunter chkrootkit && sudo rm -rf /var/ossec /etc/ossec-init.conf /var/log/weekly-sec /usr/local/bin/weekly-sec.sh && sudo rm -f /etc/apt/sources.list.d/wazuh.list /etc/apt/trusted.gpg.d/wazuh.gpg && sudo crontab -l 2>/dev/null | grep -v '/usr/local/bin/weekly-sec.sh' | sudo crontab - || true
