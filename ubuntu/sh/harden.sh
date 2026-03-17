@@ -1,8 +1,9 @@
 #!/bin/bash
 #
-# Ubuntu 24.04 安全加固脚本（最终优化版）
+# Ubuntu 24.04 安全加固脚本（重置版）
 # 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
 # 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
+# 增强: 安装前检测软件/用户是否存在，询问是否彻底删除后重新安装/创建
 # 请使用 root 用户或具有 sudo 权限的用户运行
 #
 
@@ -40,11 +41,6 @@ DEFAULT_1PANEL_PORT=52936
 if ss -tuln | grep -q ":$DEFAULT_PORT "; then
     print_error "默认 SSH 端口 $DEFAULT_PORT 已被占用，请修改为其他端口。"
     exit 1
-fi
-
-# 检查默认用户是否存在（仅用于后续提示）
-if id "$DEFAULT_USER" &>/dev/null; then
-    print_warn "默认用户 $DEFAULT_USER 已存在，后续将使用现有用户。"
 fi
 
 # ========== 交互式配置 ==========
@@ -141,7 +137,7 @@ if [[ "$INSTALL_SINGBOX_INPUT" =~ ^[Yy]$ ]]; then
     INSTALL_SINGBOX="yes"
 fi
 
-# Cloudflared 安装询问（带 token 反馈）
+# Cloudflared 安装询问
 INSTALL_CLOUDFLARED="no"
 print_question "是否安装 cloudflared 隧道？(y/N): "
 read -r INSTALL_CLOUDFLARED_INPUT
@@ -173,6 +169,78 @@ if [[ ! "$confirm_start" =~ ^[Yy]$ ]]; then
     print_warn "用户取消操作，脚本退出。"
     exit 0
 fi
+
+# ========== 卸载函数定义 ==========
+uninstall_nginx() {
+    print_info "正在彻底卸载 Nginx..."
+    systemctl stop nginx 2>/dev/null || true
+    systemctl disable nginx 2>/dev/null || true
+    apt purge -y nginx nginx-common nginx-core 2>/dev/null || true
+    apt autoremove -y
+    rm -rf /etc/nginx /var/log/nginx /var/www/html
+    rm -f /etc/systemd/system/nginx.service.dpkg-old 2>/dev/null || true
+    print_info "Nginx 已卸载。"
+}
+
+uninstall_singbox() {
+    print_info "正在彻底卸载 sing-box..."
+    systemctl stop sing-box 2>/dev/null || true
+    systemctl disable sing-box 2>/dev/null || true
+    rm -f /usr/local/bin/sing-box
+    rm -rf /etc/sing-box
+    rm -f /etc/systemd/system/sing-box.service
+    systemctl daemon-reload
+    print_info "sing-box 已卸载。"
+}
+
+uninstall_cloudflared() {
+    print_info "正在彻底卸载 cloudflared..."
+    systemctl stop cloudflared 2>/dev/null || true
+    systemctl disable cloudflared 2>/dev/null || true
+    # 使用官方卸载命令
+    if command -v cloudflared &>/dev/null; then
+        cloudflared service uninstall 2>/dev/null || true
+    fi
+    apt purge -y cloudflared 2>/dev/null || true
+    rm -f /usr/local/bin/cloudflared
+    rm -rf /etc/cloudflared
+    rm -f /etc/systemd/system/cloudflared.service
+    rm -f /usr/share/keyrings/cloudflare-public-v2.gpg
+    rm -f /etc/apt/sources.list.d/cloudflared.list
+    apt update
+    print_info "cloudflared 已卸载。"
+}
+
+uninstall_user() {
+    local user="$1"
+    print_warn "正在删除用户 $user 及其家目录、邮件..."
+    pkill -u "$user" 2>/dev/null || true
+    userdel -r "$user" 2>/dev/null || true
+    print_info "用户 $user 已删除。"
+}
+
+# 检测并询问重置函数
+check_and_reset() {
+    local type="$1"   # "user", "nginx", "singbox", "cloudflared"
+    local name="$2"
+    local check_cmd="$3"
+    local uninstall_func="$4"
+    local prompt_msg="$5"
+
+    if eval "$check_cmd" &>/dev/null; then
+        print_warn "$prompt_msg 已存在。"
+        print_question "是否彻底删除并重新$([ "$type" == "user" ] && echo "创建" || echo "安装")？这将清除所有相关数据！(y/N): "
+        read -r confirm_reset
+        if [[ "$confirm_reset" =~ ^[Yy]$ ]]; then
+            eval "$uninstall_func"
+            return 0  # 可以继续安装/创建
+        else
+            print_info "跳过，使用现有$([ "$type" == "user" ] && echo "用户" || echo "版本")。"
+            return 1  # 跳过后续安装/创建
+        fi
+    fi
+    return 0  # 不存在，可以安装
+}
 
 # ========== 第一阶段：基础系统准备 ==========
 print_info "========== 第一阶段：基础系统准备 =========="
@@ -212,11 +280,12 @@ ufw default allow outgoing
 # ========== 用户创建与配置 ==========
 print_info "========== 用户创建与配置 =========="
 
-# 5. 检查用户是否存在，若不存在则创建并设置密码
-print_info "检查用户 ${SSH_USER} 状态..."
-if id "${SSH_USER}" &>/dev/null; then
-    print_warn "用户 ${SSH_USER} 已存在，将使用现有用户，密码保持不变。"
+# 检查用户是否存在并询问重置
+if ! check_and_reset "user" "$SSH_USER" "id $SSH_USER" "uninstall_user $SSH_USER" "用户 $SSH_USER"; then
+    # 用户选择保留现有，跳过创建
+    print_info "使用现有用户 $SSH_USER。"
 else
+    # 用户不存在或已删除，创建新用户并设置密码
     print_info "创建用户 ${SSH_USER}..."
     useradd -m -s /bin/bash -G sudo "${SSH_USER}"
     # 强制非空密码
@@ -240,7 +309,7 @@ else
     unset PASSWORD1 PASSWORD2
 fi
 
-# 6. 确保用户属于 sudo 组（如果已存在但不在组中）
+# 确保用户属于 sudo 组（如果保留现有但不在组中，则添加）
 if ! groups "${SSH_USER}" | grep -q "\bsudo\b"; then
     print_warn "用户 ${SSH_USER} 不在 sudo 组中，正在添加..."
     usermod -aG sudo "${SSH_USER}"
@@ -249,7 +318,7 @@ else
     print_info "用户 ${SSH_USER} 已在 sudo 组中。"
 fi
 
-# 7. SSH 服务加固
+# 5. SSH 服务加固
 print_info "配置 SSH 服务（端口 ${SSH_PORT}，禁用 root 登录，保留密码认证）..."
 SSHD_CONFIG="/etc/ssh/sshd_config"
 cp "${SSHD_CONFIG}" "${SSHD_CONFIG}.bak.$(date +%Y%m%d%H%M%S)"
@@ -264,7 +333,7 @@ sed -i 's/^#*MaxAuthTries.*/MaxAuthTries 3/' "${SSHD_CONFIG}"
 sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' "${SSHD_CONFIG}"
 sed -i 's/^#*UsePAM.*/UsePAM yes/' "${SSHD_CONFIG}"
 
-# 8. 防火墙放行 SSH 端口
+# 6. 防火墙放行 SSH 端口
 print_info "防火墙放行 SSH 端口 ${SSH_PORT}..."
 ufw allow "${SSH_PORT}/tcp" comment "SSH custom port"
 if [[ "$ALLOW_1PANEL" == "yes" && -n "$PANEL_PORT" ]]; then
@@ -274,12 +343,12 @@ fi
 ufw --force enable
 ufw status verbose
 
-# 9. 重启 SSH 服务
+# 7. 重启 SSH 服务
 print_info "重启 SSH 服务以应用新配置..."
 systemctl restart ssh
 print_info "SSH 服务已重启，请使用端口 ${SSH_PORT} 连接（保留密码认证）。"
 
-# 10. 验证用户配置（不依赖 sudo 命令）
+# 8. 验证用户配置（不依赖 sudo 命令）
 print_info "验证用户 ${SSH_USER} 的配置..."
 if id "${SSH_USER}" &>/dev/null; then
     print_info "用户 ${SSH_USER} 存在。"
@@ -307,46 +376,52 @@ print_info "用户配置验证通过。"
 # ========== 第二阶段：应用安装与服务配置 ==========
 print_info "========== 第二阶段：应用安装与服务配置 =========="
 
-# 11. 安装 Nginx
+# 9. 安装 Nginx
 if [[ "$INSTALL_NGINX" == "yes" ]]; then
-    print_info "安装 Nginx..."
-    apt install -y nginx
-    systemctl enable --now nginx
-    if [[ "$ALLOW_NGINX_PORTS" == "yes" ]]; then
-        print_info "防火墙放行 80/443 端口..."
-        ufw allow 80/tcp comment "HTTP"
-        ufw allow 443/tcp comment "HTTPS"
-        ufw reload
+    if check_and_reset "nginx" "nginx" "command -v nginx" "uninstall_nginx" "Nginx"; then
+        print_info "安装 Nginx..."
+        apt install -y nginx
+        systemctl enable --now nginx
+        if [[ "$ALLOW_NGINX_PORTS" == "yes" ]]; then
+            print_info "防火墙放行 80/443 端口..."
+            ufw allow 80/tcp comment "HTTP"
+            ufw allow 443/tcp comment "HTTPS"
+            ufw reload
+        fi
     fi
 fi
 
-# 12. 安装 sing-box
+# 10. 安装 sing-box
 if [[ "$INSTALL_SINGBOX" == "yes" ]]; then
-    print_info "使用官方脚本安装 sing-box..."
-    bash -c "$(curl -fsSL https://sing-box.app/install.sh)"
-    systemctl enable sing-box || print_warn "sing-box 服务无法启用，请手动检查"
-fi
-
-# 13. 安装 cloudflared
-if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
-    print_info "安装 cloudflared..."
-    mkdir -p --mode=0755 /usr/share/keyrings
-    curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
-    echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list
-    apt update
-    apt install -y cloudflared
-    if [[ -n "$CLOUDFLARED_TOKEN" ]]; then
-        print_info "使用提供的 token 安装隧道服务..."
-        cloudflared service install "$CLOUDFLARED_TOKEN"
+    if check_and_reset "singbox" "sing-box" "command -v sing-box" "uninstall_singbox" "sing-box"; then
+        print_info "使用官方脚本安装 sing-box..."
+        bash -c "$(curl -fsSL https://sing-box.app/install.sh)"
+        systemctl enable sing-box || print_warn "sing-box 服务无法启用，请手动检查"
     fi
 fi
 
-# 14. 自动安全更新
+# 11. 安装 cloudflared
+if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
+    if check_and_reset "cloudflared" "cloudflared" "command -v cloudflared" "uninstall_cloudflared" "cloudflared"; then
+        print_info "安装 cloudflared..."
+        mkdir -p --mode=0755 /usr/share/keyrings
+        curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+        echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list
+        apt update
+        apt install -y cloudflared
+        if [[ -n "$CLOUDFLARED_TOKEN" ]]; then
+            print_info "使用提供的 token 安装隧道服务..."
+            cloudflared service install "$CLOUDFLARED_TOKEN"
+        fi
+    fi
+fi
+
+# 12. 自动安全更新
 print_info "配置自动安全更新..."
 apt install -y unattended-upgrades
 dpkg-reconfigure -plow unattended-upgrades
 
-# 15. 安装 fail2ban
+# 13. 安装 fail2ban
 print_info "安装并配置 fail2ban..."
 apt install -y fail2ban
 cat > /etc/fail2ban/jail.local <<EOF
@@ -361,7 +436,7 @@ port = ${SSH_PORT}
 EOF
 systemctl enable --now fail2ban
 
-# 16. 内核参数加固
+# 14. 内核参数加固
 print_info "应用内核安全参数..."
 cat > /etc/sysctl.d/99-hardening.conf <<EOF
 kernel.yama.ptrace_scope = 1
@@ -375,13 +450,13 @@ net.ipv4.conf.all.rp_filter = 1
 EOF
 sysctl --system
 
-# 17. 日志持久化
+# 15. 日志持久化
 print_info "配置 systemd 日志持久化..."
 mkdir -p /var/log/journal
 systemd-tmpfiles --create --prefix /var/log/journal
 systemctl restart systemd-journald
 
-# 18. 检查 AppArmor 状态
+# 16. 检查 AppArmor 状态
 print_info "AppArmor 状态:"
 aa-status || print_warn "AppArmor 未激活或未安装。"
 
@@ -394,15 +469,15 @@ ss -tulpn | grep LISTEN || echo "无监听端口"
 print_info "关键服务运行状态:"
 declare -A VERSIONS
 services=("ssh" "fail2ban" "ufw")
-if [[ "$INSTALL_NGINX" == "yes" ]]; then
+if [[ "$INSTALL_NGINX" == "yes" ]] && command -v nginx &>/dev/null; then
     services+=("nginx")
     VERSIONS["nginx"]=$(nginx -v 2>&1 | awk '{print $3}' || echo "未知")
 fi
-if [[ "$INSTALL_SINGBOX" == "yes" ]]; then
+if [[ "$INSTALL_SINGBOX" == "yes" ]] && command -v sing-box &>/dev/null; then
     services+=("sing-box")
     VERSIONS["sing-box"]=$(sing-box version 2>/dev/null | head -n1 || echo "未知")
 fi
-if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
+if [[ "$INSTALL_CLOUDFLARED" == "yes" ]] && command -v cloudflared &>/dev/null; then
     services+=("cloudflared")
     VERSIONS["cloudflared"]=$(cloudflared version 2>/dev/null | head -n1 || echo "未知")
 fi
@@ -422,16 +497,16 @@ echo "  SSH 端口: ${SSH_PORT}"
 echo "  SSH 登录方式: 密码 (请妥善保管)"
 echo "  1panel 端口放行: ${ALLOW_1PANEL} (端口: ${PANEL_PORT:-无})"
 echo "  Nginx 安装: ${INSTALL_NGINX}"
-if [[ "$INSTALL_NGINX" == "yes" ]]; then
+if [[ "$INSTALL_NGINX" == "yes" && -n "${VERSIONS["nginx"]}" ]]; then
     echo "  Nginx 版本: ${VERSIONS["nginx"]}"
     echo "  Nginx 端口放行: ${ALLOW_NGINX_PORTS}"
 fi
 echo "  sing-box 安装: ${INSTALL_SINGBOX}"
-if [[ "$INSTALL_SINGBOX" == "yes" ]]; then
+if [[ "$INSTALL_SINGBOX" == "yes" && -n "${VERSIONS["sing-box"]}" ]]; then
     echo "  sing-box 版本: ${VERSIONS["sing-box"]}"
 fi
 echo "  cloudflared 安装: ${INSTALL_CLOUDFLARED}"
-if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
+if [[ "$INSTALL_CLOUDFLARED" == "yes" && -n "${VERSIONS["cloudflared"]}" ]]; then
     echo "  cloudflared 版本: ${VERSIONS["cloudflared"]}"
 fi
 echo "  Fail2ban 状态: $(systemctl is-active fail2ban)"
