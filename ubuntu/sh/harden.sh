@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Ubuntu 24.04 安全加固脚本（重置版）
+# Ubuntu 24.04 安全加固脚本（最终版）
 # 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
 # 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
-# 增强: 安装前检测软件/用户是否存在，询问是否彻底删除后重新安装/创建
+# 增强: 端口被占用时自动提示重新输入或随机生成；安装前检测软件/用户是否存在，询问是否重置
 # 请使用 root 用户或具有 sudo 权限的用户运行
 #
 
@@ -37,11 +37,17 @@ DEFAULT_USER="next-flow"
 DEFAULT_PORT=58639
 DEFAULT_1PANEL_PORT=52936
 
-# 检查默认 SSH 端口占用
-if ss -tuln | grep -q ":$DEFAULT_PORT "; then
-    print_error "默认 SSH 端口 $DEFAULT_PORT 已被占用，请修改为其他端口。"
-    exit 1
-fi
+# 生成随机端口（50001-60000之间，避开已占用端口）
+generate_random_port() {
+    local port
+    while true; do
+        port=$(( RANDOM % 10000 + 50001 ))
+        if ! ss -tuln | grep -q ":$port "; then
+            echo "$port"
+            break
+        fi
+    done
+}
 
 # ========== 交互式配置 ==========
 # 用户名输入
@@ -66,28 +72,78 @@ while true; do
 done
 print_info "用户名设置为: ${SSH_USER}"
 
-# SSH 端口输入
-while true; do
+# SSH 端口输入（带自动检测和随机生成）
+# 先检查默认端口是否被占用
+if ss -tuln | grep -q ":$DEFAULT_PORT "; then
+    print_warn "默认 SSH 端口 $DEFAULT_PORT 已被占用。"
+    print_question "是否使用随机生成的可用端口？(y/N，回车使用随机端口): "
+    read -r use_random
+    if [[ "$use_random" =~ ^[Yy]$ ]] || [[ -z "$use_random" ]]; then
+        SSH_PORT=$(generate_random_port)
+        print_info "已自动选择可用端口: ${SSH_PORT}"
+    else
+        # 用户想手动输入
+        while true; do
+            print_question "请输入新的 SSH 监听端口 (必须大于50000): "
+            read -r SSH_PORT_INPUT
+            if [[ -z "$SSH_PORT_INPUT" ]]; then
+                print_error "端口不能为空，请重新输入。"
+                continue
+            fi
+            if [[ "$SSH_PORT_INPUT" =~ ^[0-9]+$ ]] && [[ "$SSH_PORT_INPUT" -gt 50000 ]] && [[ "$SSH_PORT_INPUT" -le 65535 ]]; then
+                if ss -tuln | grep -q ":$SSH_PORT_INPUT "; then
+                    print_error "端口 $SSH_PORT_INPUT 已被占用，请选择其他端口。"
+                    continue
+                fi
+                SSH_PORT="$SSH_PORT_INPUT"
+                print_info "SSH端口设置为: ${SSH_PORT}"
+                break
+            else
+                print_error "端口号必须是 50001-65535 之间的数字，请重新输入。"
+            fi
+        done
+    fi
+else
+    # 默认端口可用，询问用户是否使用默认或输入
     print_question "请输入新的 SSH 监听端口 (必须大于50000) [默认: ${DEFAULT_PORT}]: "
     read -r SSH_PORT_INPUT
     if [[ -z "$SSH_PORT_INPUT" ]]; then
         SSH_PORT="$DEFAULT_PORT"
         print_info "使用默认端口: ${SSH_PORT}"
-        break
-    fi
-
-    if [[ "$SSH_PORT_INPUT" =~ ^[0-9]+$ ]] && [[ "$SSH_PORT_INPUT" -gt 50000 ]] && [[ "$SSH_PORT_INPUT" -le 65535 ]]; then
-        if ss -tuln | grep -q ":$SSH_PORT_INPUT "; then
-            print_error "端口 $SSH_PORT_INPUT 已被占用，请选择其他端口。"
-            continue
-        fi
-        SSH_PORT="$SSH_PORT_INPUT"
-        print_info "SSH端口设置为: ${SSH_PORT}"
-        break
     else
-        print_error "端口号必须是 50001-65535 之间的数字，请重新输入。"
+        if [[ "$SSH_PORT_INPUT" =~ ^[0-9]+$ ]] && [[ "$SSH_PORT_INPUT" -gt 50000 ]] && [[ "$SSH_PORT_INPUT" -le 65535 ]]; then
+            if ss -tuln | grep -q ":$SSH_PORT_INPUT "; then
+                print_error "端口 $SSH_PORT_INPUT 已被占用，请选择其他端口。"
+                # 进入手动输入循环
+                while true; do
+                    print_question "请重新输入 SSH 监听端口 (必须大于50000): "
+                    read -r SSH_PORT_RETRY
+                    if [[ -z "$SSH_PORT_RETRY" ]]; then
+                        print_error "端口不能为空。"
+                        continue
+                    fi
+                    if [[ "$SSH_PORT_RETRY" =~ ^[0-9]+$ ]] && [[ "$SSH_PORT_RETRY" -gt 50000 ]] && [[ "$SSH_PORT_RETRY" -le 65535 ]]; then
+                        if ss -tuln | grep -q ":$SSH_PORT_RETRY "; then
+                            print_error "端口 $SSH_PORT_RETRY 仍被占用，请重新输入。"
+                            continue
+                        fi
+                        SSH_PORT="$SSH_PORT_RETRY"
+                        print_info "SSH端口设置为: ${SSH_PORT}"
+                        break
+                    else
+                        print_error "端口号必须是 50001-65535 之间的数字。"
+                    fi
+                done
+            else
+                SSH_PORT="$SSH_PORT_INPUT"
+                print_info "SSH端口设置为: ${SSH_PORT}"
+            fi
+        else
+            print_error "端口号必须是 50001-65535 之间的数字，使用默认端口: ${DEFAULT_PORT}"
+            SSH_PORT="$DEFAULT_PORT"
+        fi
     fi
-done
+fi
 
 # 1panel 端口询问
 ALLOW_1PANEL="no"
@@ -105,6 +161,7 @@ if [[ "$ALLOW_1PANEL_INPUT" =~ ^[Yy]$ ]]; then
             break
         fi
         if [[ "$PANEL_PORT_INPUT" =~ ^[0-9]+$ ]] && [[ "$PANEL_PORT_INPUT" -ge 1 ]] && [[ "$PANEL_PORT_INPUT" -le 65535 ]]; then
+            # 检查是否被占用（可选，但不强制）
             PANEL_PORT="$PANEL_PORT_INPUT"
             print_info "1panel 端口设置为: ${PANEL_PORT}"
             break
@@ -197,7 +254,6 @@ uninstall_cloudflared() {
     print_info "正在彻底卸载 cloudflared..."
     systemctl stop cloudflared 2>/dev/null || true
     systemctl disable cloudflared 2>/dev/null || true
-    # 使用官方卸载命令
     if command -v cloudflared &>/dev/null; then
         cloudflared service uninstall 2>/dev/null || true
     fi
