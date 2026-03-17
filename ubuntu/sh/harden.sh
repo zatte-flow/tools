@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Ubuntu 24.04 安全加固脚本（修复交互版）
+# Ubuntu 24.04 安全加固脚本（完整版）
 # 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
 # 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
 # 流程: Root 执行基础准备 -> 验证用户权限 -> 新用户通过 sudo 安装应用
@@ -49,30 +49,24 @@ if id "$DEFAULT_USER" &>/dev/null; then
 fi
 
 # ========== 交互式配置 ==========
-# 用户名输入（简化验证：仅检查是否为空、是否以连字符开头、是否包含非法字符）
+# 用户名输入
 while true; do
     print_question "请输入要创建的普通管理员用户名 [默认: ${DEFAULT_USER}]: "
     read -r SSH_USER_INPUT
     SSH_USER="${SSH_USER_INPUT:-$DEFAULT_USER}"
 
-    # 检查是否为空
     if [[ -z "$SSH_USER" ]]; then
         print_error "用户名不能为空，请重新输入。"
         continue
     fi
-
-    # 检查是否以连字符开头
     if [[ "$SSH_USER" =~ ^- ]]; then
         print_error "用户名不能以连字符开头，请重新输入。"
         continue
     fi
-
-    # 检查是否只包含字母、数字、下划线、连字符
     if [[ ! "$SSH_USER" =~ ^[a-zA-Z0-9_-]+$ ]]; then
         print_error "用户名只能包含字母、数字、下划线(_)和连字符(-)，请重新输入。"
         continue
     fi
-
     break
 done
 print_info "用户名设置为: ${SSH_USER}"
@@ -148,7 +142,7 @@ if [[ "$INSTALL_SINGBOX_INPUT" =~ ^[Yy]$ ]]; then
     INSTALL_SINGBOX="yes"
 fi
 
-# Cloudflared 安装询问
+# Cloudflared 安装询问（带 token 反馈）
 INSTALL_CLOUDFLARED="no"
 print_question "是否安装 cloudflared 隧道？(y/N): "
 read -r INSTALL_CLOUDFLARED_INPUT
@@ -160,6 +154,9 @@ if [[ "$INSTALL_CLOUDFLARED_INPUT" =~ ^[Yy]$ ]]; then
     if [[ -z "$CLOUDFLARED_TOKEN" ]]; then
         print_error "Token 不能为空，将跳过 cloudflared 安装。"
         INSTALL_CLOUDFLARED="no"
+    else
+        # 反馈 token 已接收并显示长度（不显示内容）
+        print_info "Token 已接收 (长度: ${#CLOUDFLARED_TOKEN})"
     fi
 fi
 
@@ -182,9 +179,18 @@ fi
 # ========== 第一阶段：基础系统准备 (以 root 执行) ==========
 print_info "========== 第一阶段：基础系统准备 (Root) =========="
 
-# 1. 系统更新
+# 1. 系统更新（带容错）
 print_info "更新软件包列表并升级所有软件..."
-apt update && apt upgrade -y
+if ! apt update; then
+    print_warn "apt update 失败，尝试修复源列表..."
+    apt update --fix-missing
+fi
+
+if ! apt upgrade -y; then
+    print_warn "apt upgrade 遇到错误，尝试修复依赖并重试..."
+    apt --fix-broken install -y
+    apt upgrade -y --fix-missing
+fi
 
 # 2. 安装必要工具
 print_info "安装常用工具（curl、wget、ufw 等）..."
@@ -285,7 +291,6 @@ fi
 # 12. 安装 cloudflared
 if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
     print_info "安装 cloudflared..."
-    # 使用临时文件避免复杂的 heredoc 嵌套
     run_as_user bash -c "mkdir -p --mode=0755 /usr/share/keyrings"
     run_as_user bash -c "curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null"
     run_as_user bash -c "echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list"
@@ -302,7 +307,7 @@ print_info "配置自动安全更新..."
 run_as_user apt install -y unattended-upgrades
 run_as_user dpkg-reconfigure -plow unattended-upgrades
 
-# 14. 安装 fail2ban（使用临时文件写入配置）
+# 14. 安装 fail2ban
 print_info "安装并配置 fail2ban..."
 run_as_user apt install -y fail2ban
 run_as_user bash -c "cat > /etc/fail2ban/jail.local <<EOF
@@ -317,7 +322,7 @@ port = ${SSH_PORT}
 EOF"
 run_as_user systemctl enable --now fail2ban
 
-# 15. 内核参数加固（使用临时文件写入配置）
+# 15. 内核参数加固
 print_info "应用内核安全参数..."
 run_as_user bash -c "cat > /etc/sysctl.d/99-hardening.conf <<EOF
 kernel.yama.ptrace_scope = 1
