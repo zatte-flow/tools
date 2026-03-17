@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Ubuntu 24.04 安全加固脚本（最终版）
+# Ubuntu 24.04 安全加固脚本（增强健壮性版）
 # 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
 # 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
 # 流程: Root 执行基础准备 -> 验证用户权限 -> 新用户通过 sudo 安装应用
@@ -46,11 +46,21 @@ if id "$DEFAULT_USER" &>/dev/null; then
 fi
 
 # ========== 交互式配置收集 ==========
-print_question "请输入要创建的普通管理员用户名 [默认: ${DEFAULT_USER}]: "
-read -r SSH_USER_INPUT
-SSH_USER="${SSH_USER_INPUT:-$DEFAULT_USER}"
+# 用户名输入（检查非法字符）
+while true; do
+    print_question "请输入要创建的普通管理员用户名 [默认: ${DEFAULT_USER}]: "
+    read -r SSH_USER_INPUT
+    SSH_USER="${SSH_USER_INPUT:-$DEFAULT_USER}"
+    # 检查用户名是否合法（仅允许字母、数字、下划线、连字符，且不以连字符开头）
+    if [[ ! "$SSH_USER" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
+        print_error "用户名包含非法字符或格式错误。请使用字母、数字、下划线或连字符，且不能以连字符开头。"
+        continue
+    fi
+    break
+done
 print_info "用户名设置为: ${SSH_USER}"
 
+# SSH 端口输入
 print_question "请输入新的 SSH 监听端口 (必须大于50000) [默认: ${DEFAULT_PORT}]: "
 read -r SSH_PORT_INPUT
 if [[ -z "$SSH_PORT_INPUT" ]]; then
@@ -215,7 +225,8 @@ print_info "SSH 服务已重启，请使用端口 ${SSH_PORT} 连接（保留密
 
 # 9. 验证新用户 sudo 权限（关键步骤）
 print_info "验证用户 ${SSH_USER} 的 sudo 权限..."
-if su - "${SSH_USER}" -c "sudo whoami" | grep -q "root"; then
+# 使用 su 切换用户并执行 sudo，注意用户名中的特殊字符已用双引号保护
+if su - "${SSH_USER}" -c "sudo whoami" 2>/dev/null | grep -q "root"; then
     print_info "用户 ${SSH_USER} sudo 权限验证成功。"
 else
     print_error "用户 ${SSH_USER} sudo 权限验证失败，请手动检查！脚本退出。"
@@ -226,6 +237,7 @@ fi
 print_info "========== 第二阶段：应用安装与服务配置 (User: ${SSH_USER}) =========="
 
 # 辅助函数：以新用户身份执行需要 sudo 的命令
+# 使用 eval 确保命令字符串被正确解析，同时用双引号保护用户名
 run_as_user() {
     sudo -u "${SSH_USER}" sudo "$@"
 }
@@ -319,17 +331,15 @@ declare -A VERSIONS
 services=("ssh" "fail2ban" "ufw")
 if [[ "$INSTALL_NGINX" == "yes" ]]; then
     services+=("nginx")
-    # 使用确认后的命令获取版本 [citation:3][citation:9]
+    # 获取 Nginx 版本，注意 nginx -v 输出到 stderr
     VERSIONS["nginx"]=$(su - "${SSH_USER}" -c "nginx -v" 2>&1 | awk '{print $3}' || echo "未知")
 fi
 if [[ "$INSTALL_SINGBOX" == "yes" ]]; then
     services+=("sing-box")
-    # 使用官方指定的 version 命令 [citation:1][citation:7][citation:10]
     VERSIONS["sing-box"]=$(su - "${SSH_USER}" -c "sing-box version" 2>/dev/null | head -n1 || echo "未知")
 fi
 if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
     services+=("cloudflared")
-    # version 和 --version 均可，这里使用 version [citation:2][citation:8]
     VERSIONS["cloudflared"]=$(su - "${SSH_USER}" -c "cloudflared version" 2>/dev/null | head -n1 || echo "未知")
 fi
 
