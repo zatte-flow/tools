@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Ubuntu 24.04 安全加固脚本（最终版）
+# Ubuntu 24.04 安全加固脚本（最终优化版）
 # 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
 # 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
 # 请使用 root 用户或具有 sudo 权限的用户运行
@@ -42,9 +42,9 @@ if ss -tuln | grep -q ":$DEFAULT_PORT "; then
     exit 1
 fi
 
-# 检查默认用户是否存在（仅警告）
+# 检查默认用户是否存在（仅用于后续提示）
 if id "$DEFAULT_USER" &>/dev/null; then
-    print_warn "默认用户 $DEFAULT_USER 已存在，后续将跳过创建步骤。"
+    print_warn "默认用户 $DEFAULT_USER 已存在，后续将使用现有用户。"
 fi
 
 # ========== 交互式配置 ==========
@@ -96,7 +96,7 @@ done
 # 1panel 端口询问
 ALLOW_1PANEL="no"
 PANEL_PORT=""
-print_question "是否预留 1panel 面板端口（防火墙放行）？(y/N，默认不预留): "
+print_question "是否预留 1panel 面板端口（防火墙放行）？(y/N): "
 read -r ALLOW_1PANEL_INPUT
 if [[ "$ALLOW_1PANEL_INPUT" =~ ^[Yy]$ ]]; then
     ALLOW_1PANEL="yes"
@@ -209,11 +209,15 @@ ufw --force disable &>/dev/null || true
 ufw default deny incoming
 ufw default allow outgoing
 
-# 5. 创建用户并加入 sudo 组（密码强制非空）
-print_info "创建用户 ${SSH_USER} 并加入 sudo 组..."
+# ========== 用户创建与配置 ==========
+print_info "========== 用户创建与配置 =========="
+
+# 5. 检查用户是否存在，若不存在则创建并设置密码
+print_info "检查用户 ${SSH_USER} 状态..."
 if id "${SSH_USER}" &>/dev/null; then
-    print_warn "用户 ${SSH_USER} 已存在，跳过创建。"
+    print_warn "用户 ${SSH_USER} 已存在，将使用现有用户，密码保持不变。"
 else
+    print_info "创建用户 ${SSH_USER}..."
     useradd -m -s /bin/bash -G sudo "${SSH_USER}"
     # 强制非空密码
     while true; do
@@ -236,7 +240,16 @@ else
     unset PASSWORD1 PASSWORD2
 fi
 
-# 6. SSH 服务加固
+# 6. 确保用户属于 sudo 组（如果已存在但不在组中）
+if ! groups "${SSH_USER}" | grep -q "\bsudo\b"; then
+    print_warn "用户 ${SSH_USER} 不在 sudo 组中，正在添加..."
+    usermod -aG sudo "${SSH_USER}"
+    print_info "已添加用户 ${SSH_USER} 到 sudo 组。"
+else
+    print_info "用户 ${SSH_USER} 已在 sudo 组中。"
+fi
+
+# 7. SSH 服务加固
 print_info "配置 SSH 服务（端口 ${SSH_PORT}，禁用 root 登录，保留密码认证）..."
 SSHD_CONFIG="/etc/ssh/sshd_config"
 cp "${SSHD_CONFIG}" "${SSHD_CONFIG}.bak.$(date +%Y%m%d%H%M%S)"
@@ -251,7 +264,7 @@ sed -i 's/^#*MaxAuthTries.*/MaxAuthTries 3/' "${SSHD_CONFIG}"
 sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' "${SSHD_CONFIG}"
 sed -i 's/^#*UsePAM.*/UsePAM yes/' "${SSHD_CONFIG}"
 
-# 7. 防火墙放行 SSH 端口
+# 8. 防火墙放行 SSH 端口
 print_info "防火墙放行 SSH 端口 ${SSH_PORT}..."
 ufw allow "${SSH_PORT}/tcp" comment "SSH custom port"
 if [[ "$ALLOW_1PANEL" == "yes" && -n "$PANEL_PORT" ]]; then
@@ -261,12 +274,12 @@ fi
 ufw --force enable
 ufw status verbose
 
-# 8. 重启 SSH 服务
+# 9. 重启 SSH 服务
 print_info "重启 SSH 服务以应用新配置..."
 systemctl restart ssh
 print_info "SSH 服务已重启，请使用端口 ${SSH_PORT} 连接（保留密码认证）。"
 
-# 9. 验证用户配置（不依赖 sudo 命令）
+# 10. 验证用户配置（不依赖 sudo 命令）
 print_info "验证用户 ${SSH_USER} 的配置..."
 if id "${SSH_USER}" &>/dev/null; then
     print_info "用户 ${SSH_USER} 存在。"
@@ -278,14 +291,8 @@ fi
 if groups "${SSH_USER}" | grep -q "\bsudo\b"; then
     print_info "用户 ${SSH_USER} 已加入 sudo 组。"
 else
-    print_warn "用户 ${SSH_USER} 不在 sudo 组中，尝试添加..."
-    usermod -aG sudo "${SSH_USER}" 2>/dev/null || true
-    if groups "${SSH_USER}" | grep -q "\bsudo\b"; then
-        print_info "已成功将用户 ${SSH_USER} 添加到 sudo 组。"
-    else
-        print_error "无法将用户 ${SSH_USER} 添加到 sudo 组，请手动执行：usermod -aG sudo ${SSH_USER}"
-        exit 1
-    fi
+    print_error "用户 ${SSH_USER} 不在 sudo 组中，请手动添加：usermod -aG sudo ${SSH_USER}"
+    exit 1
 fi
 
 if command -v sudo &>/dev/null; then
@@ -300,7 +307,7 @@ print_info "用户配置验证通过。"
 # ========== 第二阶段：应用安装与服务配置 ==========
 print_info "========== 第二阶段：应用安装与服务配置 =========="
 
-# 10. 安装 Nginx
+# 11. 安装 Nginx
 if [[ "$INSTALL_NGINX" == "yes" ]]; then
     print_info "安装 Nginx..."
     apt install -y nginx
@@ -313,14 +320,14 @@ if [[ "$INSTALL_NGINX" == "yes" ]]; then
     fi
 fi
 
-# 11. 安装 sing-box
+# 12. 安装 sing-box
 if [[ "$INSTALL_SINGBOX" == "yes" ]]; then
     print_info "使用官方脚本安装 sing-box..."
     bash -c "$(curl -fsSL https://sing-box.app/install.sh)"
     systemctl enable sing-box || print_warn "sing-box 服务无法启用，请手动检查"
 fi
 
-# 12. 安装 cloudflared
+# 13. 安装 cloudflared
 if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
     print_info "安装 cloudflared..."
     mkdir -p --mode=0755 /usr/share/keyrings
@@ -334,12 +341,12 @@ if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
     fi
 fi
 
-# 13. 自动安全更新
+# 14. 自动安全更新
 print_info "配置自动安全更新..."
 apt install -y unattended-upgrades
 dpkg-reconfigure -plow unattended-upgrades
 
-# 14. 安装 fail2ban
+# 15. 安装 fail2ban
 print_info "安装并配置 fail2ban..."
 apt install -y fail2ban
 cat > /etc/fail2ban/jail.local <<EOF
@@ -354,7 +361,7 @@ port = ${SSH_PORT}
 EOF
 systemctl enable --now fail2ban
 
-# 15. 内核参数加固
+# 16. 内核参数加固
 print_info "应用内核安全参数..."
 cat > /etc/sysctl.d/99-hardening.conf <<EOF
 kernel.yama.ptrace_scope = 1
@@ -368,13 +375,13 @@ net.ipv4.conf.all.rp_filter = 1
 EOF
 sysctl --system
 
-# 16. 日志持久化
+# 17. 日志持久化
 print_info "配置 systemd 日志持久化..."
 mkdir -p /var/log/journal
 systemd-tmpfiles --create --prefix /var/log/journal
 systemctl restart systemd-journald
 
-# 17. 检查 AppArmor 状态
+# 18. 检查 AppArmor 状态
 print_info "AppArmor 状态:"
 aa-status || print_warn "AppArmor 未激活或未安装。"
 
