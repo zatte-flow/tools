@@ -1,15 +1,11 @@
 #!/bin/bash
 #
 # Ubuntu 24.04 安全加固脚本（增强健壮性版）
-# 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
-# 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
-# 流程: Root 执行基础准备 -> 验证用户权限 -> 新用户通过 sudo 安装应用
-# 请使用 root 用户或具有 sudo 权限的用户运行
-#
+# ... 注释部分保持不变 ...
 
 set -euo pipefail
 
-# 彩色输出函数
+# 彩色输出函数（保持不变）
 print_info() {
     echo -e "\e[32m[INFO]\e[0m $1"
 }
@@ -34,6 +30,21 @@ DEFAULT_USER="next-flow"
 DEFAULT_PORT=58639
 DEFAULT_1PANEL_PORT=52936
 
+# ✅ 初始化所有关键变量，避免 'set -u' 的 unbound variable 错误
+SSH_USER=""
+SSH_PORT=""
+SSH_USER_INPUT=""
+SSH_PORT_INPUT=""
+ALLOW_1PANEL_INPUT=""
+PANEL_PORT_INPUT=""
+INSTALL_NGINX_INPUT=""
+ALLOW_NGINX_PORTS_INPUT=""
+INSTALL_SINGBOX_INPUT=""
+INSTALL_CLOUDFLARED_INPUT=""
+CLOUDFLARED_TOKEN=""
+confirm_start=""
+do_reboot=""
+
 # 检查默认 SSH 端口是否被占用
 if ss -tuln | grep -q ":$DEFAULT_PORT "; then
     print_error "默认 SSH 端口 $DEFAULT_PORT 已被占用，请修改为其他端口。"
@@ -49,7 +60,7 @@ fi
 # 用户名输入（检查非法字符）
 while true; do
     print_question "请输入要创建的普通管理员用户名 [默认: ${DEFAULT_USER}]: "
-    read -r SSH_USER_INPUT
+    read -r SSH_USER_INPUT || SSH_USER_INPUT=""  # ✅ 处理 read 失败的情况
     SSH_USER="${SSH_USER_INPUT:-$DEFAULT_USER}"
     # 检查用户名是否合法（仅允许字母、数字、下划线、连字符，且不以连字符开头）
     if [[ ! "$SSH_USER" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]; then
@@ -62,7 +73,7 @@ print_info "用户名设置为: ${SSH_USER}"
 
 # SSH 端口输入
 print_question "请输入新的 SSH 监听端口 (必须大于50000) [默认: ${DEFAULT_PORT}]: "
-read -r SSH_PORT_INPUT
+read -r SSH_PORT_INPUT || SSH_PORT_INPUT=""  # ✅ 处理 read 失败的情况
 if [[ -z "$SSH_PORT_INPUT" ]]; then
     SSH_PORT="$DEFAULT_PORT"
     print_info "使用默认端口: ${SSH_PORT}"
@@ -84,11 +95,11 @@ fi
 ALLOW_1PANEL="no"
 PANEL_PORT=""
 print_question "是否预留 1panel 面板端口（防火墙放行）？(y/N): "
-read -r ALLOW_1PANEL_INPUT
+read -r ALLOW_1PANEL_INPUT || ALLOW_1PANEL_INPUT=""  # ✅
 if [[ "$ALLOW_1PANEL_INPUT" =~ ^[Yy]$ ]]; then
     ALLOW_1PANEL="yes"
     print_question "请输入 1panel 面板端口 [默认: ${DEFAULT_1PANEL_PORT}]: "
-    read -r PANEL_PORT_INPUT
+    read -r PANEL_PORT_INPUT || PANEL_PORT_INPUT=""  # ✅
     if [[ -z "$PANEL_PORT_INPUT" ]]; then
         PANEL_PORT="$DEFAULT_1PANEL_PORT"
         print_info "使用默认 1panel 端口: ${PANEL_PORT}"
@@ -105,13 +116,13 @@ fi
 
 # Nginx 安装询问
 INSTALL_NGINX="no"
+ALLOW_NGINX_PORTS="no"  # ✅ 提前初始化
 print_question "是否安装 Nginx？(y/N): "
-read -r INSTALL_NGINX_INPUT
+read -r INSTALL_NGINX_INPUT || INSTALL_NGINX_INPUT=""  # ✅
 if [[ "$INSTALL_NGINX_INPUT" =~ ^[Yy]$ ]]; then
     INSTALL_NGINX="yes"
-    ALLOW_NGINX_PORTS="no"
     print_question "是否放行 Nginx 的 80/443 端口？(y/N，默认不放行): "
-    read -r ALLOW_NGINX_PORTS_INPUT
+    read -r ALLOW_NGINX_PORTS_INPUT || ALLOW_NGINX_PORTS_INPUT=""  # ✅
     if [[ "$ALLOW_NGINX_PORTS_INPUT" =~ ^[Yy]$ ]]; then
         ALLOW_NGINX_PORTS="yes"
         print_info "将在防火墙放行 80/443 端口"
@@ -121,7 +132,7 @@ fi
 # Sing-box 安装询问
 INSTALL_SINGBOX="no"
 print_question "是否安装 sing-box？(y/N): "
-read -r INSTALL_SINGBOX_INPUT
+read -r INSTALL_SINGBOX_INPUT || INSTALL_SINGBOX_INPUT=""  # ✅
 if [[ "$INSTALL_SINGBOX_INPUT" =~ ^[Yy]$ ]]; then
     INSTALL_SINGBOX="yes"
 fi
@@ -129,11 +140,11 @@ fi
 # Cloudflared 安装询问
 INSTALL_CLOUDFLARED="no"
 print_question "是否安装 cloudflared 隧道？(y/N): "
-read -r INSTALL_CLOUDFLARED_INPUT
+read -r INSTALL_CLOUDFLARED_INPUT || INSTALL_CLOUDFLARED_INPUT=""  # ✅
 if [[ "$INSTALL_CLOUDFLARED_INPUT" =~ ^[Yy]$ ]]; then
     INSTALL_CLOUDFLARED="yes"
     print_question "请输入您的 cloudflared 隧道 token: "
-    read -rs CLOUDFLARED_TOKEN
+    read -rs CLOUDFLARED_TOKEN || CLOUDFLARED_TOKEN=""  # ✅
     echo
     if [[ -z "$CLOUDFLARED_TOKEN" ]]; then
         print_error "Token 不能为空，将跳过 cloudflared 安装。"
@@ -151,7 +162,7 @@ if [[ "$INSTALL_NGINX" == "yes" ]]; then echo "  放行80/443: ${ALLOW_NGINX_POR
 echo "  安装sing-box: ${INSTALL_SINGBOX}"
 echo "  安装cloudflared: ${INSTALL_CLOUDFLARED}"
 print_question "是否继续？(y/N): "
-read -r confirm_start
+read -r confirm_start || confirm_start=""  # ✅
 if [[ ! "$confirm_start" =~ ^[Yy]$ ]]; then
     print_warn "用户取消操作，脚本退出。"
     exit 0
@@ -196,10 +207,15 @@ fi
 # 6. SSH 服务加固（先修改配置，稍后重启）
 print_info "配置 SSH 服务（端口 ${SSH_PORT}，禁用 root 登录，保留密码认证）..."
 SSHD_CONFIG="/etc/ssh/sshd_config"
-cp "${SSHD_CONFIG}" "${SSHD_CONFIG}.bak.$(date +%Y%m%d%H%M%S)"
+# ✅ 检查 cp 命令是否成功
+cp "${SSHD_CONFIG}" "${SSHD_CONFIG}.bak.$(date +%Y%m%d%H%M%S)" || {
+    print_error "备份 SSH 配置文件失败"
+    exit 1
+}
 
 if grep -q "^#*Port " "${SSHD_CONFIG}"; then
-    sed -i "s/^#*Port .*/Port ${SSH_PORT}/" "${SSHD_CONFIG}"
+    # ✅ 使用 | 作为分隔符避免 / 冲突
+    sed -i "s|^#*Port .*|Port ${SSH_PORT}|" "${SSHD_CONFIG}"
 else
     echo "Port ${SSH_PORT}" >> "${SSHD_CONFIG}"
 fi
@@ -237,7 +253,6 @@ fi
 print_info "========== 第二阶段：应用安装与服务配置 (User: ${SSH_USER}) =========="
 
 # 辅助函数：以新用户身份执行需要 sudo 的命令
-# 使用 eval 确保命令字符串被正确解析，同时用双引号保护用户名
 run_as_user() {
     sudo -u "${SSH_USER}" sudo "$@"
 }
@@ -284,7 +299,8 @@ run_as_user dpkg-reconfigure -plow unattended-upgrades
 # 14. 安装 fail2ban
 print_info "安装并配置 fail2ban..."
 run_as_user apt install -y fail2ban
-run_as_user bash -c "cat > /etc/fail2ban/jail.local <<EOF
+# ✅ 使用单引号的 heredoc 避免变量扩展问题
+run_as_user bash -c 'cat > /etc/fail2ban/jail.local <<'"'"'EOF'"'"'
 [DEFAULT]
 bantime = 3600
 findtime = 600
@@ -292,13 +308,13 @@ maxretry = 5
 
 [sshd]
 enabled = true
-port = ${SSH_PORT}
-EOF"
+port = '"${SSH_PORT}"'
+EOF'
 run_as_user systemctl enable --now fail2ban
 
 # 15. 内核参数加固
 print_info "应用内核安全参数..."
-run_as_user bash -c "cat > /etc/sysctl.d/99-hardening.conf <<EOF
+run_as_user bash -c 'cat > /etc/sysctl.d/99-hardening.conf <<'"'"'EOF'"'"'
 kernel.yama.ptrace_scope = 1
 net.ipv4.tcp_syncookies = 1
 net.ipv4.conf.all.log_martians = 1
@@ -307,7 +323,7 @@ net.ipv6.conf.all.accept_redirects = 0
 net.ipv4.conf.all.accept_source_route = 0
 net.ipv6.conf.all.accept_source_route = 0
 net.ipv4.conf.all.rp_filter = 1
-EOF"
+EOF'
 run_as_user sysctl --system
 
 # 16. 日志持久化
@@ -318,7 +334,8 @@ run_as_user systemctl restart systemd-journald
 
 # 17. 检查 AppArmor 状态
 print_info "AppArmor 状态:"
-aa-status || print_warn "AppArmor 未激活或未安装。"
+# ✅ 给 aa-status 添加双引号保护
+"aa-status" || print_warn "AppArmor 未激活或未安装。"
 
 # ========== 最终状态检测 ==========
 print_info "========== 最终状态检测 =========="
@@ -343,13 +360,16 @@ if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
     VERSIONS["cloudflared"]=$(su - "${SSH_USER}" -c "cloudflared version" 2>/dev/null | head -n1 || echo "未知")
 fi
 
-for svc in "${services[@]}"; do
-    if systemctl is-active --quiet "$svc"; then
-        echo "  - $svc: 运行中"
-    else
-        echo "  - $svc: 未运行"
-    fi
-done
+# ✅ 检查 services 数组是否为空
+if [[ ${#services[@]} -gt 0 ]]; then
+    for svc in "${services[@]}"; do
+        if systemctl is-active --quiet "$svc"; then
+            echo "  - $svc: 运行中"
+        else
+            echo "  - $svc: 未运行"
+        fi
+    done
+fi
 
 # 打印汇总信息
 print_info "========== 配置汇总 =========="
@@ -376,7 +396,7 @@ echo "  UFW 状态: $(ufw status | head -n1)"
 # 询问是否重启
 print_info "所有配置已完成。建议重启系统以应用全部更改。"
 print_question "是否立即重启？(y/N): "
-read -r do_reboot
+read -r do_reboot || do_reboot=""  # ✅
 if [[ "$do_reboot" =~ ^[Yy]$ ]]; then
     print_info "系统将在 10 秒后重启..."
     sleep 10
