@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Ubuntu 24.04 安全加固脚本（完整版）
+# Ubuntu 24.04 安全加固脚本（最终版）
 # 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
 # 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
 # 流程: Root 执行基础准备 -> 验证用户权限 -> 新用户通过 sudo 安装应用
@@ -246,9 +246,9 @@ fi
 ufw --force enable
 ufw status verbose
 
-# 8. 重启 SSH 服务
+# 8. 重启 SSH 服务（Ubuntu 中服务名为 ssh，不是 sshd）
 print_info "重启 SSH 服务以应用新配置..."
-systemctl restart sshd
+systemctl restart ssh
 print_info "SSH 服务已重启，请使用端口 ${SSH_PORT} 连接（保留密码认证）。"
 
 # 9. 验证新用户 sudo 权限
