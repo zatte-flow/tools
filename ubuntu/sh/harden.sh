@@ -1,9 +1,8 @@
 #!/bin/bash
 #
-# Ubuntu 24.04 安全加固脚本（最终可用版）
+# Ubuntu 24.04 安全加固脚本（最终版）
 # 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
 # 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
-# 流程: Root 执行所有操作，避免 sudo 密码交互
 # 请使用 root 用户或具有 sudo 权限的用户运行
 #
 
@@ -97,7 +96,7 @@ done
 # 1panel 端口询问
 ALLOW_1PANEL="no"
 PANEL_PORT=""
-print_question "是否预留 1panel 面板端口（防火墙放行）？(y/N): "
+print_question "是否预留 1panel 面板端口（防火墙放行）？(y/N，默认不预留): "
 read -r ALLOW_1PANEL_INPUT
 if [[ "$ALLOW_1PANEL_INPUT" =~ ^[Yy]$ ]]; then
     ALLOW_1PANEL="yes"
@@ -210,14 +209,31 @@ ufw --force disable &>/dev/null || true
 ufw default deny incoming
 ufw default allow outgoing
 
-# 5. 创建用户并加入 sudo 组
+# 5. 创建用户并加入 sudo 组（密码强制非空）
 print_info "创建用户 ${SSH_USER} 并加入 sudo 组..."
 if id "${SSH_USER}" &>/dev/null; then
     print_warn "用户 ${SSH_USER} 已存在，跳过创建。"
 else
     useradd -m -s /bin/bash -G sudo "${SSH_USER}"
-    passwd "${SSH_USER}"
-    print_info "用户 ${SSH_USER} 创建成功。"
+    # 强制非空密码
+    while true; do
+        read -s -p "Enter password for user ${SSH_USER}: " PASSWORD1
+        echo
+        read -s -p "Re-enter password: " PASSWORD2
+        echo
+        if [[ -z "$PASSWORD1" ]]; then
+            print_error "密码不能为空，请重新输入。"
+            continue
+        fi
+        if [[ "$PASSWORD1" != "$PASSWORD2" ]]; then
+            print_error "两次输入的密码不一致，请重新输入。"
+            continue
+        fi
+        break
+    done
+    echo "$SSH_USER:$PASSWORD1" | chpasswd
+    print_info "用户 ${SSH_USER} 密码设置成功。"
+    unset PASSWORD1 PASSWORD2
 fi
 
 # 6. SSH 服务加固
