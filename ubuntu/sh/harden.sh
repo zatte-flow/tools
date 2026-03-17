@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Ubuntu 24.04 安全加固脚本（最终版）
+# Ubuntu 24.04 安全加固脚本（最终可用版）
 # 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
 # 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
-# 流程: Root 执行基础准备 -> 验证用户权限 -> 新用户通过 sudo 安装应用
+# 流程: Root 执行所有操作，避免 sudo 密码交互
 # 请使用 root 用户或具有 sudo 权限的用户运行
 #
 
@@ -155,7 +155,6 @@ if [[ "$INSTALL_CLOUDFLARED_INPUT" =~ ^[Yy]$ ]]; then
         print_error "Token 不能为空，将跳过 cloudflared 安装。"
         INSTALL_CLOUDFLARED="no"
     else
-        # 反馈 token 已接收并显示长度（不显示内容）
         print_info "Token 已接收 (长度: ${#CLOUDFLARED_TOKEN})"
     fi
 fi
@@ -176,8 +175,8 @@ if [[ ! "$confirm_start" =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-# ========== 第一阶段：基础系统准备 (以 root 执行) ==========
-print_info "========== 第一阶段：基础系统准备 (Root) =========="
+# ========== 第一阶段：基础系统准备 ==========
+print_info "========== 第一阶段：基础系统准备 =========="
 
 # 1. 系统更新（带容错）
 print_info "更新软件包列表并升级所有软件..."
@@ -192,7 +191,7 @@ if ! apt upgrade -y; then
     apt upgrade -y --fix-missing
 fi
 
-# 2. 安装必要工具（显式安装 sudo）
+# 2. 安装必要工具
 print_info "安装常用工具（curl、wget、ufw、sudo 等）..."
 apt install -y curl wget software-properties-common gnupg2 ufw sudo
 
@@ -246,84 +245,88 @@ fi
 ufw --force enable
 ufw status verbose
 
-# 8. 重启 SSH 服务（Ubuntu 中服务名为 ssh）
+# 8. 重启 SSH 服务
 print_info "重启 SSH 服务以应用新配置..."
 systemctl restart ssh
 print_info "SSH 服务已重启，请使用端口 ${SSH_PORT} 连接（保留密码认证）。"
 
-# 9. 验证新用户 sudo 权限（带自动修复）
-print_info "验证用户 ${SSH_USER} 的 sudo 权限..."
-# 首次验证
-if su - "${SSH_USER}" -c "sudo whoami" 2>/dev/null | grep -q "root"; then
-    print_info "用户 ${SSH_USER} sudo 权限验证成功。"
+# 9. 验证用户配置（不依赖 sudo 命令）
+print_info "验证用户 ${SSH_USER} 的配置..."
+if id "${SSH_USER}" &>/dev/null; then
+    print_info "用户 ${SSH_USER} 存在。"
 else
-    print_warn "用户 ${SSH_USER} sudo 权限验证失败，尝试自动修复..."
-    # 尝试将用户添加到 sudo 组（如果不在）
+    print_error "用户 ${SSH_USER} 不存在，请检查。"
+    exit 1
+fi
+
+if groups "${SSH_USER}" | grep -q "\bsudo\b"; then
+    print_info "用户 ${SSH_USER} 已加入 sudo 组。"
+else
+    print_warn "用户 ${SSH_USER} 不在 sudo 组中，尝试添加..."
     usermod -aG sudo "${SSH_USER}" 2>/dev/null || true
-    # 再次验证
-    if su - "${SSH_USER}" -c "sudo whoami" 2>/dev/null | grep -q "root"; then
-        print_info "修复成功，用户 ${SSH_USER} 现已具有 sudo 权限。"
+    if groups "${SSH_USER}" | grep -q "\bsudo\b"; then
+        print_info "已成功将用户 ${SSH_USER} 添加到 sudo 组。"
     else
-        print_error "用户 ${SSH_USER} sudo 权限验证失败，请手动检查："
-        echo "  1. 确认用户 ${SSH_USER} 是否在 sudo 组中：groups ${SSH_USER}"
-        echo "  2. 如果不在，执行：usermod -aG sudo ${SSH_USER}"
-        echo "  3. 然后尝试：su - ${SSH_USER} -c 'sudo whoami'"
-        echo "  4. 确保 sudo 命令已安装：apt install sudo"
+        print_error "无法将用户 ${SSH_USER} 添加到 sudo 组，请手动执行：usermod -aG sudo ${SSH_USER}"
         exit 1
     fi
 fi
 
-# ========== 第二阶段：应用安装与服务配置 (以新用户通过 sudo 执行) ==========
-print_info "========== 第二阶段：应用安装与服务配置 (User: ${SSH_USER}) =========="
+if command -v sudo &>/dev/null; then
+    print_info "sudo 命令可用。"
+else
+    print_error "sudo 命令未安装，请执行：apt install sudo"
+    exit 1
+fi
 
-# 辅助函数：以新用户身份执行 sudo 命令
-run_as_user() {
-    sudo -u "${SSH_USER}" sudo "$@"
-}
+print_info "用户配置验证通过。"
+
+# ========== 第二阶段：应用安装与服务配置 ==========
+print_info "========== 第二阶段：应用安装与服务配置 =========="
 
 # 10. 安装 Nginx
 if [[ "$INSTALL_NGINX" == "yes" ]]; then
     print_info "安装 Nginx..."
-    run_as_user apt install -y nginx
-    run_as_user systemctl enable --now nginx
+    apt install -y nginx
+    systemctl enable --now nginx
     if [[ "$ALLOW_NGINX_PORTS" == "yes" ]]; then
         print_info "防火墙放行 80/443 端口..."
-        run_as_user ufw allow 80/tcp comment "HTTP"
-        run_as_user ufw allow 443/tcp comment "HTTPS"
-        run_as_user ufw reload
+        ufw allow 80/tcp comment "HTTP"
+        ufw allow 443/tcp comment "HTTPS"
+        ufw reload
     fi
 fi
 
 # 11. 安装 sing-box
 if [[ "$INSTALL_SINGBOX" == "yes" ]]; then
     print_info "使用官方脚本安装 sing-box..."
-    run_as_user bash -c "$(curl -fsSL https://sing-box.app/install.sh)"
-    run_as_user systemctl enable sing-box || print_warn "sing-box 服务无法启用，请手动检查"
+    bash -c "$(curl -fsSL https://sing-box.app/install.sh)"
+    systemctl enable sing-box || print_warn "sing-box 服务无法启用，请手动检查"
 fi
 
 # 12. 安装 cloudflared
 if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
     print_info "安装 cloudflared..."
-    run_as_user bash -c "mkdir -p --mode=0755 /usr/share/keyrings"
-    run_as_user bash -c "curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null"
-    run_as_user bash -c "echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list"
-    run_as_user apt update
-    run_as_user apt install -y cloudflared
+    mkdir -p --mode=0755 /usr/share/keyrings
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+    echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list
+    apt update
+    apt install -y cloudflared
     if [[ -n "$CLOUDFLARED_TOKEN" ]]; then
         print_info "使用提供的 token 安装隧道服务..."
-        run_as_user cloudflared service install "$CLOUDFLARED_TOKEN"
+        cloudflared service install "$CLOUDFLARED_TOKEN"
     fi
 fi
 
 # 13. 自动安全更新
 print_info "配置自动安全更新..."
-run_as_user apt install -y unattended-upgrades
-run_as_user dpkg-reconfigure -plow unattended-upgrades
+apt install -y unattended-upgrades
+dpkg-reconfigure -plow unattended-upgrades
 
 # 14. 安装 fail2ban
 print_info "安装并配置 fail2ban..."
-run_as_user apt install -y fail2ban
-run_as_user bash -c "cat > /etc/fail2ban/jail.local <<EOF
+apt install -y fail2ban
+cat > /etc/fail2ban/jail.local <<EOF
 [DEFAULT]
 bantime = 3600
 findtime = 600
@@ -332,12 +335,12 @@ maxretry = 5
 [sshd]
 enabled = true
 port = ${SSH_PORT}
-EOF"
-run_as_user systemctl enable --now fail2ban
+EOF
+systemctl enable --now fail2ban
 
 # 15. 内核参数加固
 print_info "应用内核安全参数..."
-run_as_user bash -c "cat > /etc/sysctl.d/99-hardening.conf <<EOF
+cat > /etc/sysctl.d/99-hardening.conf <<EOF
 kernel.yama.ptrace_scope = 1
 net.ipv4.tcp_syncookies = 1
 net.ipv4.conf.all.log_martians = 1
@@ -346,14 +349,14 @@ net.ipv6.conf.all.accept_redirects = 0
 net.ipv4.conf.all.accept_source_route = 0
 net.ipv6.conf.all.accept_source_route = 0
 net.ipv4.conf.all.rp_filter = 1
-EOF"
-run_as_user sysctl --system
+EOF
+sysctl --system
 
 # 16. 日志持久化
 print_info "配置 systemd 日志持久化..."
-run_as_user mkdir -p /var/log/journal
-run_as_user systemd-tmpfiles --create --prefix /var/log/journal
-run_as_user systemctl restart systemd-journald
+mkdir -p /var/log/journal
+systemd-tmpfiles --create --prefix /var/log/journal
+systemctl restart systemd-journald
 
 # 17. 检查 AppArmor 状态
 print_info "AppArmor 状态:"
@@ -370,15 +373,15 @@ declare -A VERSIONS
 services=("ssh" "fail2ban" "ufw")
 if [[ "$INSTALL_NGINX" == "yes" ]]; then
     services+=("nginx")
-    VERSIONS["nginx"]=$(su - "${SSH_USER}" -c "nginx -v" 2>&1 | awk '{print $3}' || echo "未知")
+    VERSIONS["nginx"]=$(nginx -v 2>&1 | awk '{print $3}' || echo "未知")
 fi
 if [[ "$INSTALL_SINGBOX" == "yes" ]]; then
     services+=("sing-box")
-    VERSIONS["sing-box"]=$(su - "${SSH_USER}" -c "sing-box version" 2>/dev/null | head -n1 || echo "未知")
+    VERSIONS["sing-box"]=$(sing-box version 2>/dev/null | head -n1 || echo "未知")
 fi
 if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
     services+=("cloudflared")
-    VERSIONS["cloudflared"]=$(su - "${SSH_USER}" -c "cloudflared version" 2>/dev/null | head -n1 || echo "未知")
+    VERSIONS["cloudflared"]=$(cloudflared version 2>/dev/null | head -n1 || echo "未知")
 fi
 
 for svc in "${services[@]}"; do
