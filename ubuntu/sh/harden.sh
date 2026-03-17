@@ -192,9 +192,9 @@ if ! apt upgrade -y; then
     apt upgrade -y --fix-missing
 fi
 
-# 2. 安装必要工具
-print_info "安装常用工具（curl、wget、ufw 等）..."
-apt install -y curl wget software-properties-common gnupg2 ufw
+# 2. 安装必要工具（显式安装 sudo）
+print_info "安装常用工具（curl、wget、ufw、sudo 等）..."
+apt install -y curl wget software-properties-common gnupg2 ufw sudo
 
 # 3. 时钟同步检测
 if systemctl is-active systemd-timesyncd &>/dev/null; then
@@ -246,18 +246,31 @@ fi
 ufw --force enable
 ufw status verbose
 
-# 8. 重启 SSH 服务（Ubuntu 中服务名为 ssh，不是 sshd）
+# 8. 重启 SSH 服务（Ubuntu 中服务名为 ssh）
 print_info "重启 SSH 服务以应用新配置..."
 systemctl restart ssh
 print_info "SSH 服务已重启，请使用端口 ${SSH_PORT} 连接（保留密码认证）。"
 
-# 9. 验证新用户 sudo 权限
+# 9. 验证新用户 sudo 权限（带自动修复）
 print_info "验证用户 ${SSH_USER} 的 sudo 权限..."
+# 首次验证
 if su - "${SSH_USER}" -c "sudo whoami" 2>/dev/null | grep -q "root"; then
     print_info "用户 ${SSH_USER} sudo 权限验证成功。"
 else
-    print_error "用户 ${SSH_USER} sudo 权限验证失败，请手动检查！脚本退出。"
-    exit 1
+    print_warn "用户 ${SSH_USER} sudo 权限验证失败，尝试自动修复..."
+    # 尝试将用户添加到 sudo 组（如果不在）
+    usermod -aG sudo "${SSH_USER}" 2>/dev/null || true
+    # 再次验证
+    if su - "${SSH_USER}" -c "sudo whoami" 2>/dev/null | grep -q "root"; then
+        print_info "修复成功，用户 ${SSH_USER} 现已具有 sudo 权限。"
+    else
+        print_error "用户 ${SSH_USER} sudo 权限验证失败，请手动检查："
+        echo "  1. 确认用户 ${SSH_USER} 是否在 sudo 组中：groups ${SSH_USER}"
+        echo "  2. 如果不在，执行：usermod -aG sudo ${SSH_USER}"
+        echo "  3. 然后尝试：su - ${SSH_USER} -c 'sudo whoami'"
+        echo "  4. 确保 sudo 命令已安装：apt install sudo"
+        exit 1
+    fi
 fi
 
 # ========== 第二阶段：应用安装与服务配置 (以新用户通过 sudo 执行) ==========
