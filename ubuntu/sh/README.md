@@ -51,3 +51,7 @@ curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/sec
 ```bash
 sudo apt-get purge -y wazuh-agent lynis rkhunter chkrootkit && sudo rm -rf /var/ossec /etc/ossec-init.conf /var/log/weekly-sec /usr/local/bin/weekly-sec.sh && sudo rm -f /etc/apt/sources.list.d/wazuh.list /etc/apt/trusted.gpg.d/wazuh.gpg && sudo crontab -l 2>/dev/null | grep -v '/usr/local/bin/weekly-sec.sh' | sudo crontab - || true
 ```
+### 系统初始化及配置1panel、nginx等
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/harden-install.sh)
+```
