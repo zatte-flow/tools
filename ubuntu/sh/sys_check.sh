@@ -73,7 +73,7 @@ echo ""
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}>>> 3. 当前监听端口及关联服务 <<<${NC}"
 if command -v ss &> /dev/null; then
-    listening_ports=$(ss -tulpn 2>/dev/null | grep -v "users:" | grep LISTEN)
+    listening_ports=$(ss -tulpn 2>/dev/null | grep -v "users:" | grep LISTEN || true)
 else
     listening_ports=$(netstat -tulpn 2>/dev/null | grep LISTEN)
 fi
