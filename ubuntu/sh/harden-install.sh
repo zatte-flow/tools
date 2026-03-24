@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Ubuntu 24.04 系统初始化：设置用户名，禁用root，安装1panel，选择安装nginx、sing-box、cloudflared tunnel
+# Ubuntu 24.04 系统初始化
 # 默认用户名: next-flow, 默认 SSH 端口: 58639, 默认 1panel 端口: 52936
 # 功能: 可选安装 Nginx/sing-box/cloudflared，可选放行 1panel 端口（可自定义）
 # 增强: 端口被占用时自动提示重新输入或随机生成；安装前检测软件/用户是否存在，询问是否重置
