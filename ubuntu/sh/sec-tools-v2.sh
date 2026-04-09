@@ -3,7 +3,7 @@
 # 自动安装 lynis、rkhunter、chkrootkit，并设置定期自动巡检
 # 包含：工具更新、基线检查、摘要生成、运维小工具提示
 
-set -eu
+# set -eu
 LOGDIR="/var/log/weekly-sec"
 SCRIPT_PATH="/usr/local/bin/weekly-sec.sh"
 
@@ -117,8 +117,17 @@ EOF
 
 sudo chmod +x "$SCRIPT_PATH"
 
+# echo "[INFO] 设置每周日凌晨 2:00 自动巡检..."
+# (sudo crontab -l 2>/dev/null | grep -v "$SCRIPT_PATH" ; echo "0 2 * * 0 $SCRIPT_PATH") | sudo crontab -
+
 echo "[INFO] 设置每周日凌晨 2:00 自动巡检..."
-(sudo crontab -l 2>/dev/null | grep -v "$SCRIPT_PATH" ; echo "0 2 * * 0 $SCRIPT_PATH") | sudo crontab -
+# 更健壮的 crontab 设置
+if sudo crontab -l 2>/dev/null | grep -q "$SCRIPT_PATH"; then
+    echo "[INFO] crontab 中已存在该任务，跳过添加。"
+else
+    (sudo crontab -l 2>/dev/null || true; echo "0 2 * * 0 $SCRIPT_PATH") | sudo crontab -
+    echo "[INFO] crontab 已添加。"
+fi
 
 echo "[INFO] 立即手动执行一次巡检..."
 sudo "$SCRIPT_PATH"
