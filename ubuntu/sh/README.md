@@ -55,3 +55,8 @@ sudo apt-get purge -y wazuh-agent lynis rkhunter chkrootkit && sudo rm -rf /var/
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/harden-install.sh)
 ```
+
+### 更新sing-box 可指定版本号如：1.13.8
+```bash
+curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/up_sing-box.sh | sudo bash -s -- 1.13.8
+```
