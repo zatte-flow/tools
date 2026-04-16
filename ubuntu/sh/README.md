@@ -58,5 +58,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu
 
 ### 更新sing-box 可指定版本号如：1.13.8
 ```bash
+# 交互方式
+curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/up_sing-box.sh | sudo bash
+# 指定版本
 curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/up_sing-box.sh | sudo bash -s -- 1.13.8
+# 自动安装最新版本
+curl -fsSL https://raw.githubusercontent.com/zatte-flow/tools/main/ubuntu/sh/up_sing-box.sh | sudo bash -s -- --auto
 ```
