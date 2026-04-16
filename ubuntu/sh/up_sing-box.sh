@@ -14,12 +14,23 @@ show_help() {
 用法: $0 [版本号]
 
 示例:
-  $0               # 自动查询最新版本，交互式选择安装
-  $0 1.13.8        # 直接安装指定版本
+  $0               # 自动查询最新版本，交互式选择安装（需要终端）
+  $0 1.13.8        # 直接安装指定版本（适合非交互式环境）
   $0 --help        # 显示此帮助
 
 版本号格式: x.y.z (例如 1.13.8)
+注意：交互模式需要终端，若通过管道执行请使用命令行参数指定版本号。
 EOF
+}
+
+# ========== 检查是否为交互式终端 ==========
+check_interactive() {
+    if [[ ! -t 0 ]]; then
+        echo -e "${RED}错误：检测到非交互式环境（标准输入不是终端）。${NC}" >&2
+        echo -e "${YELLOW}请使用命令行参数指定版本号，例如：$0 1.13.8${NC}" >&2
+        echo -e "${YELLOW}或使用 --help 查看帮助。${NC}" >&2
+        exit 1
+    fi
 }
 
 # ========== 检查 root 权限 ==========
@@ -57,7 +68,6 @@ get_current_version() {
 
 # ========== 查询最新版本（从 GitHub API） ==========
 get_latest_version() {
-    # 所有提示信息输出到 stderr，避免污染 stdout（stdout 只输出版本号）
     echo -e "${BLUE}>>> 正在查询最新版本 ...${NC}" >&2
     local latest
     latest=$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep -o '"tag_name": *"[^"]*"' | sed 's/.*"v\([^"]*\)"/\1/')
@@ -149,6 +159,9 @@ install_version() {
 
 # ========== 交互式安装（无参数时） ==========
 interactive_install() {
+    # 检测是否为交互式终端
+    check_interactive
+
     # 获取当前版本
     CURRENT=$(get_current_version)
     echo -e "${BLUE}当前已安装版本: ${YELLOW}${CURRENT}${NC}"
