@@ -1,36 +1,29 @@
 #!/bin/bash
-set -e
+set -e  # 遇到错误立即退出
 
 # ========== 颜色输出 ==========
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m'
+NC='\033[0m' # No Color
 
 # ========== 显示帮助 ==========
 show_help() {
     cat << EOF
-用法: $0 [版本号]
+用法: $0 [选项] [版本号]
+
+选项:
+  --auto, -a      非交互模式，自动安装最新版本 (用于 curl ... | bash)
+  --help, -h      显示此帮助信息
 
 示例:
-  $0               # 自动查询最新版本，交互式选择安装（需要终端）
-  $0 1.13.8        # 直接安装指定版本（适合非交互式环境）
-  $0 --help        # 显示此帮助
+  $0 --auto                   # 自动安装最新版本
+  $0 1.13.8                   # 直接安装指定版本
+  $0                          # 交互式运行
 
 版本号格式: x.y.z (例如 1.13.8)
-注意：交互模式需要终端，若通过管道执行请使用命令行参数指定版本号。
 EOF
-}
-
-# ========== 检查是否为交互式终端 ==========
-check_interactive() {
-    if [[ ! -t 0 ]]; then
-        echo -e "${RED}错误：检测到非交互式环境（标准输入不是终端）。${NC}" >&2
-        echo -e "${YELLOW}请使用命令行参数指定版本号，例如：$0 1.13.8${NC}" >&2
-        echo -e "${YELLOW}或使用 --help 查看帮助。${NC}" >&2
-        exit 1
-    fi
 }
 
 # ========== 检查 root 权限 ==========
@@ -159,14 +152,11 @@ install_version() {
 
 # ========== 交互式安装（无参数时） ==========
 interactive_install() {
-    # 检测是否为交互式终端
-    check_interactive
-
     # 获取当前版本
     CURRENT=$(get_current_version)
     echo -e "${BLUE}当前已安装版本: ${YELLOW}${CURRENT}${NC}"
 
-    # 获取最新版本（提示信息会输出到 stderr，不会干扰变量）
+    # 获取最新版本
     LATEST=$(get_latest_version)
 
     # 比较当前版本与最新版本
@@ -219,18 +209,42 @@ interactive_install() {
 
 # ========== 主逻辑 ==========
 main() {
+    # 处理帮助参数
     if [[ "$1" == "--help" || "$1" == "-h" ]]; then
         show_help
         exit 0
     fi
 
+    # 自动安装模式（非交互）
+    if [[ "$1" == "--auto" || "$1" == "-a" ]]; then
+        check_root
+        check_commands
+        echo -e "${GREEN}>>> 自动安装模式：正在获取最新版本并安装...${NC}"
+        LATEST=$(get_latest_version)
+        install_version "$LATEST"
+        exit 0
+    fi
+
+    # 检查权限
     check_root
+
+    # 检查必要命令
     check_commands
 
+    # 检查是否为交互式终端（如果 stdin 不是终端，则报错退出）
+    if [[ ! -t 0 ]]; then
+        echo -e "${RED}错误：检测到非交互式环境（标准输入不是终端）。${NC}" >&2
+        echo -e "${YELLOW}请使用 --auto 选项自动安装最新版本：${NC}" >&2
+        echo -e "${YELLOW}  curl -fsSL https://your-server.com/up.sh | sudo bash -s -- --auto${NC}" >&2
+        exit 1
+    fi
+
+    # 如果带版本号参数，直接安装
     if [[ -n "$1" ]]; then
         validate_version "$1" || exit 1
         install_version "$1"
     else
+        # 否则进入交互模式
         interactive_install
     fi
 }
