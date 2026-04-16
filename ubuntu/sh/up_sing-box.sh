@@ -57,14 +57,15 @@ get_current_version() {
 
 # ========== 查询最新版本（从 GitHub API） ==========
 get_latest_version() {
-    echo -e "${BLUE}>>> 正在查询最新版本 ...${NC}"
+    # 所有提示信息输出到 stderr，避免污染 stdout（stdout 只输出版本号）
+    echo -e "${BLUE}>>> 正在查询最新版本 ...${NC}" >&2
     local latest
     latest=$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep -o '"tag_name": *"[^"]*"' | sed 's/.*"v\([^"]*\)"/\1/')
     if [[ -z "$latest" ]]; then
-        echo -e "${RED}错误：无法获取最新版本，请检查网络或 GitHub API 限制${NC}"
+        echo -e "${RED}错误：无法获取最新版本，请检查网络或 GitHub API 限制${NC}" >&2
         exit 1
     fi
-    echo -e "${GREEN}最新版本: v${latest}${NC}"
+    echo -e "${GREEN}最新版本: v${latest}${NC}" >&2
     echo "$latest"
 }
 
@@ -148,10 +149,11 @@ install_version() {
 
 # ========== 交互式安装（无参数时） ==========
 interactive_install() {
-    # 获取当前版本和最新版本
+    # 获取当前版本
     CURRENT=$(get_current_version)
     echo -e "${BLUE}当前已安装版本: ${YELLOW}${CURRENT}${NC}"
 
+    # 获取最新版本（提示信息会输出到 stderr，不会干扰变量）
     LATEST=$(get_latest_version)
 
     # 比较当前版本与最新版本
