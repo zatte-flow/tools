@@ -163,7 +163,7 @@ interactive_install() {
     if [[ "$CURRENT" == "$LATEST" ]]; then
         echo -e "${YELLOW}⚠️ 当前版本已是最新版本 v${LATEST}${NC}"
         echo -e -n "${YELLOW}是否重新安装？[y/N]: ${NC}"
-        read -r reinstall
+        read -r reinstall </dev/tty
         if [[ ! "$reinstall" =~ ^[Yy]$ ]]; then
             echo -e "${BLUE}已取消安装。${NC}"
             exit 0
@@ -179,7 +179,7 @@ interactive_install() {
     echo -e "  [2] 安装指定版本 (手动输入版本号)"
     echo -e "  [3] 退出"
     echo -e -n "${BLUE}请输入选项 [1-3] (默认: 1): ${NC}"
-    read -r choice
+    read -r choice </dev/tty
 
     case "$choice" in
         1|"")
@@ -188,7 +188,7 @@ interactive_install() {
             ;;
         2)
             echo -e -n "${BLUE}请输入要安装的版本号 (格式如 1.13.8): ${NC}"
-            read -r user_version
+            read -r user_version </dev/tty
             if validate_version "$user_version"; then
                 install_version "$user_version"
             else
@@ -230,14 +230,6 @@ main() {
 
     # 检查必要命令
     check_commands
-
-    # 检查是否为交互式终端（如果 stdin 不是终端，则报错退出）
-    if [[ ! -t 0 ]]; then
-        echo -e "${RED}错误：检测到非交互式环境（标准输入不是终端）。${NC}" >&2
-        echo -e "${YELLOW}请使用 --auto 选项自动安装最新版本：${NC}" >&2
-        echo -e "${YELLOW}  curl -fsSL https://your-server.com/up.sh | sudo bash -s -- --auto${NC}" >&2
-        exit 1
-    fi
 
     # 如果带版本号参数，直接安装
     if [[ -n "$1" ]]; then
