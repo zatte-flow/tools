@@ -181,31 +181,36 @@ interactive_install() {
     # 获取最新版本
     LATEST=$(get_latest_version)
 
-    # 比较当前版本与最新版本
+    # 显示版本选择菜单
     if [[ "$CURRENT" == "$LATEST" ]]; then
         echo -e "${YELLOW}⚠️ 当前版本已是最新版本 v${LATEST}${NC}"
-        echo -e -n "${YELLOW}是否重新安装？[y/N]: ${NC}"
-        read -r reinstall </dev/tty
-        if [[ ! "$reinstall" =~ ^[Yy]$ ]]; then
-            echo -e "${BLUE}已取消安装。${NC}"
-            exit 0
-        fi
-        # 用户选择重新安装，直接安装最新版
-        install_version "$LATEST"
-        return
+        echo -e "${YELLOW}请选择要执行的操作：${NC}"
+        echo -e "  [1] 重新安装最新版 v${LATEST}"
+        echo -e "  [2] 安装指定版本 (手动输入版本号)"
+        echo -e "  [3] 退出"
+        echo -e -n "${BLUE}请输入选项 [1-3] (默认: 1): ${NC}"
+        read -r choice </dev/tty
+    else
+        echo -e "${YELLOW}请选择要安装的版本：${NC}"
+        echo -e "  [1] 安装最新版 v${LATEST} (推荐)"
+        echo -e "  [2] 安装指定版本 (手动输入版本号)"
+        echo -e "  [3] 退出"
+        echo -e -n "${BLUE}请输入选项 [1-3] (默认: 1): ${NC}"
+        read -r choice </dev/tty
     fi
-
-    # 正常情况：最新版与当前不同
-    echo -e "${YELLOW}请选择要安装的版本：${NC}"
-    echo -e "  [1] 安装最新版 v${LATEST} (推荐)"
-    echo -e "  [2] 安装指定版本 (手动输入版本号)"
-    echo -e "  [3] 退出"
-    echo -e -n "${BLUE}请输入选项 [1-3] (默认: 1): ${NC}"
-    read -r choice </dev/tty
 
     case "$choice" in
         1|"")
-            echo -e "${GREEN}将安装最新版 v${LATEST}${NC}"
+            if [[ "$CURRENT" == "$LATEST" ]]; then
+                echo -e "${YELLOW}当前已安装的就是最新版 (v${LATEST})，是否重新安装？[y/N]: ${NC}"
+                read -r confirm </dev/tty
+                if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+                    echo -e "${BLUE}已取消安装。${NC}"
+                    exit 0
+                fi
+            else
+                echo -e "${GREEN}将安装最新版 v${LATEST}${NC}"
+            fi
             install_version "$LATEST"
             ;;
         2)
